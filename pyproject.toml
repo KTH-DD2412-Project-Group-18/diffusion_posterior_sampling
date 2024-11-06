@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "A reimplementation of \"Diffusion Posterior Sampling for Noisy Inverse problems\""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
+packages = [
+    { include = "src" },
+    { include = "models" },
+    { include = "guided_diffusion" },
+    { include = "scripts" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -14,8 +20,10 @@ pandas = "^2.2.3"
 torch = "^2.5.1"
 torchvision = "^0.20.1"
 polars = "^1.12.0"
-
+blobfile = "^3.0.0"
+mpi4py = "^4.0.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
