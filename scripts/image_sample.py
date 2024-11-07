@@ -1,7 +1,18 @@
 """
 Generate a large batch of image samples from a model and save them as a large
 numpy array. This can be used to produce samples for FID evaluation.
+Source: openAI
+Modified by Dan Vicente in November 2024
 """
+
+import os
+from datetime import datetime
+
+# Set CPU thread settings at (to limit CPU usage locally) 
+# os.environ["OMP_NUM_THREADS"] = "2"  # OpenMP threads
+# os.environ["MKL_NUM_THREADS"] = "2"  # MKL threads
+# os.environ["NUMEXPR_NUM_THREADS"] = "2"  # NumExpr threads
+# os.environ["VECLIB_MAXIMUM_THREADS"] = "2"  # Vector library threads (specific to Mac)
 
 import argparse
 import os
@@ -18,7 +29,6 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
 )
-
 
 def main():
     args = create_argparser().parse_args()
@@ -39,6 +49,7 @@ def main():
     model.eval()
 
     logger.log("sampling...")
+    t_start = datetime.now()
     all_images = []
     all_labels = []
     while len(all_images) * args.batch_size < args.num_samples:
@@ -57,23 +68,51 @@ def main():
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
         )
+
+        # Debug prints for raw sample
+        print("Raw sample stats:")
+        print(f"Shape: {sample.shape}")
+        print(f"Device: {sample.device}")
+        print(f"Range: [{sample.min().item():.3f}, {sample.max().item():.3f}]")
+        print(f"Mean: {sample.mean().item():.3f}")
+
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
         sample = sample.permute(0, 2, 3, 1)
         sample = sample.contiguous()
 
-        gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
-        dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
-        all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
+        # Debug prints after normalization
+        print("\nNormalized sample stats:")
+        print(f"Shape: {sample.shape}")
+        print(f"Range: [{sample.min().item()}, {sample.max().item()}]")
+        print(f"Mean: {sample.float().mean().item():.3f}")
+
+        if dist.get_world_size() > 1:
+            gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
+            dist_util.safe_all_gather(gathered_samples, sample)
+            all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
+        else:
+            # If running on a single device, just use the sample directly
+            all_images.append(sample.cpu().numpy())
+
         if args.class_cond:
-            gathered_labels = [
-                th.zeros_like(classes) for _ in range(dist.get_world_size())
-            ]
-            dist.all_gather(gathered_labels, classes)
-            all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
+            if dist.get_world_size() > 1:
+                gathered_labels = [th.zeros_like(classes) for _ in range(2)]
+                dist_util.safe_all_gather(gathered_labels, classes)
+                all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
+            else:
+                all_labels.append(classes.cpu().numpy())
+
         logger.log(f"created {len(all_images) * args.batch_size} samples")
 
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
+    
+    # Debug prints for final array
+    print("\nFinal array stats:")
+    print(f"Shape: {arr.shape}")
+    print(f"Range: [{arr.min()}, {arr.max()}]")
+    print(f"Mean: {arr.mean():.3f}")
+    
     if args.class_cond:
         label_arr = np.concatenate(all_labels, axis=0)
         label_arr = label_arr[: args.num_samples]
@@ -85,10 +124,21 @@ def main():
             np.savez(out_path, arr, label_arr)
         else:
             np.savez(out_path, arr)
+        try:
+            from PIL import Image
+            if arr.shape[0] > 0:
+                img = Image.fromarray(arr[0])
+                img_path = os.path.join(logger.get_dir(), "sample_0.png")
+                img.save(img_path)
+                logger.log(f"Saved sample image to {img_path}")
+        except Exception as e:
+            logger.log(f"Failed to save sample image: {e}")
 
     dist.barrier()
     logger.log("sampling complete")
-
+    t_end = datetime.now()
+    t_execution = t_end - t_start
+    print(f"Elapsed time during sampling = {t_execution}")
 
 def create_argparser():
     defaults = dict(
@@ -96,14 +146,12 @@ def create_argparser():
         num_samples=10000,
         batch_size=16,
         use_ddim=False,
-        model_path="./models/256x256_diffusion_uncond.pt",
+        model_path="./models/512x512_diffusion.pt",
     )
-    print(os.getcwd())
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
-
 
 if __name__ == "__main__":
     main()

@@ -31,13 +31,13 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
         beta_start = scale * 0.0001
         beta_end = scale * 0.02
         return np.linspace(
-            beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64
+            beta_start, beta_end, num_diffusion_timesteps, dtype=np.float32
         )
     elif schedule_name == "cosine":
         return betas_for_alpha_bar(
             num_diffusion_timesteps,
             lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
-        )
+        ).astype(np.float32)
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
 
@@ -129,8 +129,8 @@ class GaussianDiffusion:
         self.loss_type = loss_type
         self.rescale_timesteps = rescale_timesteps
 
-        # Use float64 for accuracy.
-        betas = np.array(betas, dtype=np.float64)
+        # Convert to float32 instead of float64
+        betas = np.array(betas, dtype=np.float32)
         self.betas = betas
         assert len(betas.shape) == 1, "betas must be 1-D"
         assert (betas > 0).all() and (betas <= 1).all()
@@ -894,6 +894,7 @@ class GaussianDiffusion:
 
 def _extract_into_tensor(arr, timesteps, broadcast_shape):
     """
+    (NOTE: Modified to force np.float32 for hardware acceleration)
     Extract values from a 1-D numpy array for a batch of indices.
 
     :param arr: the 1-D numpy array.
@@ -902,7 +903,9 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
                             dimension equal to the length of timesteps.
     :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
     """
-    res = th.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
+    # Convert numpy array to float32 before creating tensor
+    arr = arr.astype(np.float32)
+    res = th.from_numpy(arr).to(device=timesteps.device)[timesteps]
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res.expand(broadcast_shape)
