@@ -69,7 +69,6 @@ def main():
             model_kwargs=model_kwargs,
         )
 
-        # Debug prints for raw sample
         print("Raw sample stats:")
         print(f"Shape: {sample.shape}")
         print(f"Device: {sample.device}")
@@ -80,7 +79,6 @@ def main():
         sample = sample.permute(0, 2, 3, 1)
         sample = sample.contiguous()
 
-        # Debug prints after normalization
         print("\nNormalized sample stats:")
         print(f"Shape: {sample.shape}")
         print(f"Range: [{sample.min().item()}, {sample.max().item()}]")
@@ -91,7 +89,6 @@ def main():
             dist_util.safe_all_gather(gathered_samples, sample)
             all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
         else:
-            # If running on a single device, just use the sample directly
             all_images.append(sample.cpu().numpy())
 
         if args.class_cond:
@@ -107,7 +104,6 @@ def main():
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
     
-    # Debug prints for final array
     print("\nFinal array stats:")
     print(f"Shape: {arr.shape}")
     print(f"Range: [{arr.min()}, {arr.max()}]")
@@ -133,7 +129,7 @@ def main():
                 logger.log(f"Saved sample image to {img_path}")
         except Exception as e:
             logger.log(f"Failed to save sample image: {e}")
-
+            
     dist.barrier()
     logger.log("sampling complete")
     t_end = datetime.now()

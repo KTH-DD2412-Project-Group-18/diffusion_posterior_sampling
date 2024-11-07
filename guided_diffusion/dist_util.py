@@ -20,7 +20,6 @@ GPUS_PER_NODE = 8
 
 SETUP_RETRY_COUNT = 3
 
-
 def setup_dist():
     """
     Setup a distributed process group.
@@ -50,7 +49,6 @@ def setup_dist():
     os.environ["MASTER_PORT"] = str(port)
     dist.init_process_group(backend=backend, init_method="env://")
 
-
 def dev():
     """
     Get the device to use for torch.distributed.
@@ -60,7 +58,6 @@ def dev():
     elif th.cuda.is_available():
         return th.device("cuda")
     return th.device("cpu")
-
 
 def safe_all_gather(tensor_list, tensor):
     """
@@ -72,7 +69,6 @@ def safe_all_gather(tensor_list, tensor):
         return tensor_list
     else:
         return dist.all_gather(tensor_list, tensor)
-
 
 def load_state_dict(path, **kwargs):
     """
@@ -110,7 +106,6 @@ def load_state_dict(path, **kwargs):
         print(f"Loading with custom_load failed: {e}")
         return th.load(io.BytesIO(data), map_location='cpu')
 
-
 def sync_params(params):
     """
     Synchronize a sequence of Tensors across ranks from rank 0.
@@ -124,7 +119,6 @@ def sync_params(params):
                 p.copy_(cpu_p.to('mps'))
             else:
                 dist.broadcast(p.float(), 0)
-
 
 def _find_free_port():
     try:
