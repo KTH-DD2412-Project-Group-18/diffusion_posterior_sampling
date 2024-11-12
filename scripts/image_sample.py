@@ -30,6 +30,11 @@ from guided_diffusion.script_util import (
     args_to_dict,
 )
 
+##  for images:
+##  --meas_model "super-resolution", "inpainting", "linear-deblurring", "nonlinear-deblurring", "phase-retrieval"
+## for audio: ??
+##
+
 def main():
     args = create_argparser().parse_args()
 
