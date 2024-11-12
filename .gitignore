@@ -165,5 +165,9 @@ cython_debug/
 #.idea/*.pt
 
 
+# Ignore some data-specific stuff for images and modelss
 *.pt
 *.JPEG
+datasets/*
+!datasets/README.md
+!datasets/*.py
