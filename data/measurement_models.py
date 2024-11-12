@@ -18,12 +18,13 @@ class Inpainting(object):
         self.noise_model = noise_model
 
     def __call__(self, tensor):
-        self.P = torch.randint(0,1,size=(0,1))
-        meas = self.P * tensor
+        batch_size, n, d = tensor.shape
+        mask = torch.bernoulli(torch.ones_like(tensor)*0.08)
+        x = tensor * mask
         if self.noise_model == "gaussian":
-            return meas + torch.randn(size=meas.size())*self.std
+            return x + torch.randn(size=x.size())*self.std
         elif self.noise_model == "poisson":
-            return torch.poisson(meas) 
+            return torch.poisson(x) 
         else: 
             return None
     

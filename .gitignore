@@ -166,3 +166,4 @@ cython_debug/
 
 
 *.pt
+*.JPEG
