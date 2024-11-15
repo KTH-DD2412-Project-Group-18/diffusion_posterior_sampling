@@ -95,7 +95,8 @@ def create_model_and_diffusion(
     resblock_updown,
     use_fp16,
     use_new_attention_order,
-):
+):  
+    # NOTE: The UNET-model should be fine?
     model = create_model(
         image_size,
         num_channels,
@@ -114,6 +115,7 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
     )
+    # TODO: probably change this
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
         learn_sigma=learn_sigma,

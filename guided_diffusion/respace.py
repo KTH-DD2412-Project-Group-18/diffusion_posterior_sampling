@@ -60,6 +60,7 @@ def space_timesteps(num_timesteps, section_counts):
     return set(all_steps)
 
 
+# TODO: Need to modify this class to handle the different measurement_models
 class SpacedDiffusion(GaussianDiffusion):
     """
     A diffusion process which can skip steps in a base diffusion process.
@@ -112,6 +113,60 @@ class SpacedDiffusion(GaussianDiffusion):
         # Scaling is done by the wrapped model.
         return t
 
+class PoissonMseLoss(th.nn.Module):
+    """
+    A Poisson-normal approximation adjusted MSE-loss that supports autograd.
+    """
+    def __init__(self): 
+        super(PoissonMseLoss, self).__init__()
+    
+    def forward(self, x, y):
+        assert x.shape == y.shape, f"Shape missmatch between operator with shape {x.shape} and observation with shape {y.shape}"
+        lambda_matrix = th.diag(1./(2*y))
+        diff = (x - y)
+        loss = diff.T @ lambda_matrix @ diff
+        return loss
+
+class DiffusionPosteriorSampling(SpacedDiffusion):
+    """
+    A diffusion process that does the additional DPS sampling step as outlined in Chung et. al 
+    
+    Parameters
+    ----------
+    - use_timesteps: a collection (sequence or set) of timesteps from the original diffusion process to retain.
+    - measurement_model: what measurement operator to use in posterior sampling,  "
+    - noise_model: What additive noise model to use, "gaussian" or "poisson"
+    - lr: factor to use in posterior sampling, zeta_i = step_size / ||y - A(x(x_0))||
+    """
+    def __init__(self,
+                use_timesteps,
+                measurement_model,
+                noise_model, 
+                step_size=1., 
+                **kwargs
+    ):
+        super().__init__(use_timesteps, **kwargs)
+        self.measurement_model = measurement_model
+        self.noise_model = noise_model
+        self.step_size = step_size
+        if self.noise_model == "gaussian":
+            self.loss = th.nn.MSELoss()
+        elif self.noise_model == "poisson":
+            self.loss = PoissonMseLoss()
+        else:
+            print("only 'gaussian' and 'poisson' noise models!")
+            return NotImplementedError
+    
+    def compute_grad_and_value(self, x_hat, x_old, y):
+        """ Compute the gradient and posterior sample"""
+        out = self.measurement_operator(x_hat)
+        loss = self.loss(out, y)
+        loss.backward()
+        with th.no_grad():
+            grad = x_old.grad
+            x_new = x_old - self.step_size * grad # x_{i-1} = x'_{i-1} - \zeta_i ||y-A(\hat{x})||
+            x_new.grad.zero()
+        return x_new, grad
 
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
