@@ -3,6 +3,10 @@
 # https://openreview.net/forum?id=OnD9zGAGT0k
 # ====================================================================== #
 import torch
+import argparse
+import torch
+import yaml   
+from blur_models.kernel_encoding.kernel_wizard import KernelWizard
 
 class RandomInpainting(object):
     """ 
@@ -113,33 +117,18 @@ class NonLinearBlurring(object):
             return ValueError 
         self.noise_model = noise_model
 
-    def generate_blur(self):
-        # NOTE: This code is copy-pasted from https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py
-        import argparse
-        #import cv2
-        #import numpy as np
-        #import os.path as osp
-        import torch
-        #import utils.util as util
-        import yaml
-        
-        # TODO: Make import work... 
-        from models.kernel_encoding.kernel_wizard import KernelWizard
-        
+    def generate_blur(self, tensor):
+        # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py  
         #device = torch.device("cuda")
+        #parser = argparse.ArgumentParser(description="Kernel extractor testing")
+        #parser.add_argument("--yml_path", action="store", help="yml path", type=str, required=True)
+        #args = parser.parse_args()
+        #yml_path = args.yml_path
 
-        parser = argparse.ArgumentParser(description="Kernel extractor testing")
-
-        #parser.add_argument("--image_path", action="store", help="image path", type=str, required=True)
-        parser.add_argument("--yml_path", action="store", help="yml path", type=str, required=True)
-        #parser.add_argument("--save_path", action="store", help="save path", type=str, default=".")
-        #parser.add_argument("--num_samples", action="store", help="number of samples", type=int, default=1)
-
-        args = parser.parse_args()
-
-        #image_path = args.image_path
-        yml_path = args.yml_path
-        #num_samples = args.num_samples
+        # NOTE: Might want to have yml path as input instead.
+        # NOTE: default.yml set pretrained: pretrained/GOPRO_wVAE.pth
+        #       pretrained only have kernel.pth (does this work?) 
+        yml_path = "default.yml"
 
         # Initializing mode
         with open(yml_path, "r") as f:
@@ -148,15 +137,23 @@ class NonLinearBlurring(object):
         model = KernelWizard(opt)
         model.eval()
         model.load_state_dict(torch.load(model_path))
-        model = model.to(device)
-
-        #HQ = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB) / 255.0
-        #HQ = np.transpose(HQ, (2, 0, 1))
-        #HQ_tensor = torch.Tensor(HQ).unsqueeze(0).to(device).cuda()
-
+        #model = model.to(device)
+        model = model.cuda()
+        
         with torch.no_grad():
+            # NOTE: kernel size (512, 2, 2)? 
             kernel = torch.randn((1, 512, 2, 2)).cuda() * 1.2
-            LQ_tensor = model.adaptKernel(HQ_tensor, kernel)
+            LQ_tensor = model.adaptKernel(tensor, kernel)
 
+        return LQ_tensor
 
+    def __call__(self, tensor):
+        blurred_img = self.generate_blur(tensor)
+        x = blurred_img
 
+        if self.noise_model == "gaussian":
+            return x + torch.randn(size=x.size())*self.sigma
+        elif self.noise_model == "poisson":
+            return torch.poisson(x) 
+        else: 
+            return None
