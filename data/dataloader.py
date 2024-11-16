@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # NOTE: in imagenet/val there are a bunch of class-folders containing .JPEG files, this is what `ImageFolder`` wants!
     # -- 
 
-    val_data = datasets.ImageFolder("./datasets/imagenet", 
+    val_data = datasets.ImageFolder("./datasets/imagenet/val", 
                     transform= transforms.Compose([
                         transforms.Resize((256, 256)),
                         transforms.ToTensor(),    

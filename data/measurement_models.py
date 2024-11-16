@@ -110,6 +110,13 @@ class LinearBlurring(object):
 
 
 class NonLinearBlurring(object):
+    """
+    Implements the non-linear blurring forward measurement model.
+    y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
+    y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
+    F(x,k) is a external pretrained model from (see link)
+        link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
+    """
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
         if (noise_model != "gaussian") and (noise_model != "poisson"):
@@ -151,6 +158,11 @@ class NonLinearBlurring(object):
             return None
         
 class GaussianBlur(object):
+    """
+    Implements the Gaussian convolution (Gaussian noise) forward measurement model.
+    The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
+    the measurement. 
+    """
     def __init__(self, kernel_size, sigma):
         self.kernel_size = kernel_size
         self.sigma = sigma
@@ -173,6 +185,11 @@ class GaussianBlur(object):
         return blurred
     
 class MotionBlur(object):
+    """
+    Implements the motion blur forward measurement model. 
+    The motion blur kernel is an external kernel from (see link)
+        link: https://github.com/LeviBorodenko/motionblur/tree/master
+    """
     def __init__(self, kernel_size, intensity) -> None:
         self.kernel_size = kernel_size
         self.intensity = intensity
