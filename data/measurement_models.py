@@ -33,7 +33,7 @@ class RandomInpainting(object):
         mask = torch.rand((n,d)) > 0.5
         x = tensor * mask
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size())*self.sigma
+            return x + torch.randn(size=x.size())*self.sigma**2
         elif self.noise_model == "poisson":
             return torch.poisson(x) 
         else: 
@@ -80,7 +80,7 @@ class BoxInpainting(object):
         x1, x2, box_h, box_w = self.box(x)
         
         if self.noise_model == "gaussian":
-            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma
+            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma**2
             return x
         elif self.noise_model == "poisson":
             x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.poisson(x[:, x1:x1 + box_h, x2:x2 + box_w])
@@ -128,21 +128,26 @@ class NonLinearBlurring(object):
         # NOTE: Might want to have yml path as input instead.
         # NOTE: default.yml set pretrained: pretrained/GOPRO_wVAE.pth
         #       pretrained only have kernel.pth (does this work?) 
-        yml_path = "default.yml"
+        #yml_path = "default.yml"
+        yml_path = "/Users/agutell/github/DD2412_project/diffusion_posterior_sampling/data/blur_models/default.yml"
+        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         # Initializing mode
         with open(yml_path, "r") as f:
-            opt = yaml.load(f)["KernelWizard"]
+            #opt = yaml.load(f)["KernelWizard"]
+            opt = yaml.load(f, Loader=yaml.SafeLoader)["KernelWizard"]
             model_path = opt["pretrained"]
         model = KernelWizard(opt)
         model.eval()
-        model.load_state_dict(torch.load(model_path))
+        #model.load_state_dict(torch.load(model_path), map_location=torch.device('cpu'))
+        model.load_state_dict(torch.load(model_path, map_location=device))
         #model = model.to(device)
-        model = model.cuda()
+        #model = model.cuda()
         
         with torch.no_grad():
             # NOTE: kernel size (512, 2, 2)? 
-            kernel = torch.randn((1, 512, 2, 2)).cuda() * 1.2
+            #kernel = torch.randn((1, 512, 2, 2)).cuda() * 1.2
+            kernel = torch.randn((1, 512, 2, 2)) * 1.2
             LQ_tensor = model.adaptKernel(tensor, kernel)
 
         return LQ_tensor
@@ -152,7 +157,7 @@ class NonLinearBlurring(object):
         x = blurred_img
 
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size())*self.sigma
+            return x + torch.randn(size=x.size())*self.sigma**2
         elif self.noise_model == "poisson":
             return torch.poisson(x) 
         else: 

@@ -3,7 +3,9 @@ gpu_ids: [0]
 
 #### network structures
 KernelWizard:
-  pretrained: pretrained/GOPRO_wVAE.pth
+  #pretrained: pretrained/GOPRO_wVAE.pth
+  #pretrained: kernel.pth
+  pretrained: /Users/agutell/github/DD2412_project/diffusion_posterior_sampling/data/blur_models/pretrained/GOPRO_wVAE.pth
   input_nc: 3
   nf: 64
   front_RBs: 10

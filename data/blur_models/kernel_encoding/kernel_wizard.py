@@ -1,10 +1,10 @@
 import functools
 
-import models.arch_util as arch_util
+import blur_models.arch_util as arch_util
 import torch
 import torch.nn as nn
-from models.backbones.resnet import ResidualBlock_noBN, ResnetBlock
-from models.backbones.unet_parts import UnetSkipConnectionBlock
+from blur_models.backbones.resnet import ResidualBlock_noBN, ResnetBlock
+from blur_models.backbones.unet_parts import UnetSkipConnectionBlock
 
 
 # The function F in the paper
@@ -149,14 +149,15 @@ class KernelWizard(nn.Module):
         self.recon_trunk = nn.Sequential(*recon_trunk)
 
     def adaptKernel(self, x_sharp, kernel):
+        x_sharp = x_sharp.unsqueeze(0) # NOTE: Added batch dim to make it work with data loader.
         B, C, H, W = x_sharp.shape
         base = x_sharp
 
         x_sharp = self.feature_extractor(x_sharp)
-
         out = self.adapter(x_sharp, kernel)
         out = self.recon_trunk(out)
         out += base
+        out = out.squeeze(0) # NOTE: Removed batch dim to make it work with visualization
 
         return out
 
