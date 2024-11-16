@@ -109,7 +109,6 @@ class LinearBlurring(object):
 
 
 class NonLinearBlurring(object):
-
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
         if (noise_model != "gaussian") and (noise_model != "poisson"):
@@ -119,36 +118,23 @@ class NonLinearBlurring(object):
 
     def generate_blur(self, tensor):
         # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py  
-        #device = torch.device("cuda")
-        #parser = argparse.ArgumentParser(description="Kernel extractor testing")
-        #parser.add_argument("--yml_path", action="store", help="yml path", type=str, required=True)
-        #args = parser.parse_args()
-        #yml_path = args.yml_path
-
-        # NOTE: Might want to have yml path as input instead.
-        # NOTE: default.yml set pretrained: pretrained/GOPRO_wVAE.pth
-        #       pretrained only have kernel.pth (does this work?) 
-        #yml_path = "default.yml"
-        yml_path = "/Users/agutell/github/DD2412_project/diffusion_posterior_sampling/data/blur_models/default.yml"
+        yml_path = "./data/blur_models/default.yml"
         device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         # Initializing mode
         with open(yml_path, "r") as f:
-            #opt = yaml.load(f)["KernelWizard"]
             opt = yaml.load(f, Loader=yaml.SafeLoader)["KernelWizard"]
             model_path = opt["pretrained"]
         model = KernelWizard(opt)
         model.eval()
-        #model.load_state_dict(torch.load(model_path), map_location=torch.device('cpu'))
         model.load_state_dict(torch.load(model_path, map_location=device))
-        #model = model.to(device)
-        #model = model.cuda()
         
         with torch.no_grad():
-            # NOTE: kernel size (512, 2, 2)? 
-            #kernel = torch.randn((1, 512, 2, 2)).cuda() * 1.2
             kernel = torch.randn((1, 512, 2, 2)) * 1.2
-            LQ_tensor = model.adaptKernel(tensor, kernel)
+            # NOTE: The normalization transformations below was taken from DPS repo. 
+            tensor = (tensor + 1.0) / 2.0  #[-1, 1] -> [0, 1]
+            LQ_tensor = model.adaptKernel(tensor, kernel=kernel)
+            LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1) #[0, 1] -> [-1, 1]
 
         return LQ_tensor
 
