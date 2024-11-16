@@ -3,10 +3,11 @@
 # https://openreview.net/forum?id=OnD9zGAGT0k
 # ====================================================================== #
 import torch
+import torch.nn.functional as F
 import argparse
-import torch
 import yaml   
 from blur_models.kernel_encoding.kernel_wizard import KernelWizard
+from motionblur import Kernel
 
 class RandomInpainting(object):
     """ 
@@ -148,3 +149,39 @@ class NonLinearBlurring(object):
             return torch.poisson(x) 
         else: 
             return None
+        
+class GaussianBlur(object):
+    def __init__(self, kernel_size, sigma):
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+
+    def gaussian_kernel(self):
+        size = self.kernel_size[0]
+        x = torch.linspace(-(size // 2), size // 2, size)
+        y = torch.linspace(-(size // 2), size // 2, size)
+        x, y = torch.meshgrid(x, y, indexing='xy')
+        kernel = torch.exp(-(x**2 + y**2) / (2 * self.sigma**2))
+        kernel /= kernel.sum()  
+        return kernel
+
+    def __call__(self, tensor):
+        kernel = self.gaussian_kernel()
+        kernel = kernel.unsqueeze(0).unsqueeze(0)
+        num_channels = tensor.size(0)
+        kernel = kernel.repeat(num_channels, 1, 1, 1)
+        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=3)
+        return blurred
+    
+class MotionBlur(object):
+    def __init__(self, kernel_size, intensity) -> None:
+        self.kernel_size = kernel_size
+        self.intensity = intensity
+
+    def __call__(self, tensor):
+        kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
+        kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype)
+        kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
+        num_channels = tensor.size(0)
+        kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1) 
+        blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=3)
+        return blurred

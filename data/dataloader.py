@@ -1,16 +1,18 @@
 import torch
 from torchvision import datasets
 from torchvision import transforms
-from measurement_models import RandomInpainting, BoxInpainting, NonLinearBlurring
+from measurement_models import RandomInpainting, BoxInpainting, NonLinearBlurring, GaussianBlur, MotionBlur
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 
 if __name__ == "__main__":
 
-    measurement_model = RandomInpainting(noise_model="gaussian", sigma=0.05)
-    measurement_model = BoxInpainting(noise_model="gaussian", sigma=0.05)
-    measurement_model = NonLinearBlurring(noise_model="gaussian", sigma=0.05)
+    #measurement_model = RandomInpainting(noise_model="gaussian", sigma=0.05)
+    #measurement_model = BoxInpainting(noise_model="gaussian", sigma=0.05)
+    #measurement_model = NonLinearBlurring(noise_model="gaussian", sigma=0.05)
+    #measurement_model, model = GaussianBlur(kernel_size=(61,61), sigma=3.0), 'Gaussian'
+    measurement_model = MotionBlur((61, 61), 0.5)
 
     # -- 
     # We create an ImageFolder with our transformation according to our measurement_model
@@ -18,14 +20,14 @@ if __name__ == "__main__":
     # NOTE: in imagenet/val there are a bunch of class-folders containing .JPEG files, this is what `ImageFolder`` wants!
     # -- 
 
-    val_data = datasets.ImageFolder("./datasets/imagenet/val", 
-                      transform= transforms.Compose([
-                          transforms.Resize((256, 256)),
-                          transforms.ToTensor(),    
-                          transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                          measurement_model
-                      ])
-                      ) 
+    val_data = datasets.ImageFolder("./datasets/imagenet", 
+                    transform= transforms.Compose([
+                        transforms.Resize((256, 256)),
+                        transforms.ToTensor(),    
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                        measurement_model
+                    ])
+                    ) 
 
     # -- 
     # Torch DataLoader handles the batch dimension
@@ -48,7 +50,7 @@ if __name__ == "__main__":
         std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
         return tensor * std + mean
 
-    img = denormalize(imgs[3])
+    img = denormalize(imgs[8])
     img = img.permute(1, 2, 0).numpy()
     img = np.clip(img, 0, 1)
 
