@@ -1,8 +1,6 @@
 import numpy as np
 import torch as th
-
-from .gaussian_diffusion import GaussianDiffusion
-
+from .gaussian_diffusion import (GaussianDiffusion, extract_into_tensor)
 
 def space_timesteps(num_timesteps, section_counts):
     """
@@ -60,7 +58,6 @@ def space_timesteps(num_timesteps, section_counts):
     return set(all_steps)
 
 
-# TODO: Need to modify this class to handle the different measurement_models
 class SpacedDiffusion(GaussianDiffusion):
     """
     A diffusion process which can skip steps in a base diffusion process.
@@ -86,15 +83,8 @@ class SpacedDiffusion(GaussianDiffusion):
         kwargs["betas"] = np.array(new_betas)
         super().__init__(**kwargs)
 
-    def p_mean_variance(
-        self, model, *args, **kwargs
-    ):  # pylint: disable=signature-differs
+    def p_mean_variance(self, model, *args, **kwargs): 
         return super().p_mean_variance(self._wrap_model(model), *args, **kwargs)
-
-    def training_losses(
-        self, model, *args, **kwargs
-    ):  # pylint: disable=signature-differs
-        return super().training_losses(self._wrap_model(model), *args, **kwargs)
 
     def condition_mean(self, cond_fn, *args, **kwargs):
         return super().condition_mean(self._wrap_model(cond_fn), *args, **kwargs)
@@ -108,10 +98,11 @@ class SpacedDiffusion(GaussianDiffusion):
         return _WrappedModel(
             model, self.timestep_map, self.rescale_timesteps, self.original_num_steps
         )
-
+    
     def _scale_timesteps(self, t):
         # Scaling is done by the wrapped model.
         return t
+
 
 class PoissonMseLoss(th.nn.Module):
     """
@@ -127,6 +118,7 @@ class PoissonMseLoss(th.nn.Module):
         loss = diff.T @ lambda_matrix @ diff
         return loss
 
+
 class DiffusionPosteriorSampling(SpacedDiffusion):
     """
     A diffusion process that does the additional DPS sampling step as outlined in Chung et. al 
@@ -138,35 +130,90 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
     - noise_model: What additive noise model to use, "gaussian" or "poisson"
     - lr: factor to use in posterior sampling, zeta_i = step_size / ||y - A(x(x_0))||
     """
-    def __init__(self,
-                use_timesteps,
-                measurement_model,
-                noise_model, 
-                step_size=1., 
-                **kwargs
+    def __init__(
+            self,
+            use_timesteps,
+            measurement_model,
+            measurement,
+            noise_model, 
+            step_size=1., 
+            **kwargs
     ):
         super().__init__(use_timesteps, **kwargs)
         self.measurement_model = measurement_model
+        self.measurement = measurement # y = A(x) + n, where x is the clean sample
         self.noise_model = noise_model
         self.step_size = step_size
         if self.noise_model == "gaussian":
-            self.loss = th.nn.MSELoss()
+            self.measurement_loss = th.nn.MSELoss()
         elif self.noise_model == "poisson":
-            self.loss = PoissonMseLoss()
+            self.measurement_loss = PoissonMseLoss()
         else:
             print("only 'gaussian' and 'poisson' noise models!")
             return NotImplementedError
     
-    def compute_grad_and_value(self, x_hat, x_old, y):
-        """ Compute the gradient and posterior sample"""
-        out = self.measurement_operator(x_hat)
+    def dps_update(self,
+                   x: th.Tensor, 
+                   x0: th.Tensor, 
+                   x_old: th.Tensor,
+                   y: th.Tensor,
+    ) -> th.Tensor: 
+        """ Compute the gradient and posterior sample using equation 16"""
+        x.requires_grad(True)
+        out = self.measurement_operator(x0)
         loss = self.loss(out, y)
-        loss.backward()
+        grad = th.autograd.grad(loss, x)[0]
         with th.no_grad():
-            grad = x_old.grad
-            x_new = x_old - self.step_size * grad # x_{i-1} = x'_{i-1} - \zeta_i ||y-A(\hat{x})||
+            zeta_i = (self.step_size / loss)
+            x_new = x_old -  zeta_i * grad  # DPS sample update
             x_new.grad.zero()
-        return x_new, grad
+        return x_new
+    
+    def p_sample(
+        self,
+        model,
+        x,
+        t,
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        y=None,
+        model_kwargs=None,
+    ):
+        """
+        Sample x_{t-1} from the model at the given timestep.
+
+        :param model: the model to sample from.
+        :param x: the current tensor at x_{t-1}.
+        :param t: the value of t, starting at 0 for the first diffusion step.
+        :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample.
+        :param cond_fn: if not None, this is a gradient function that acts
+                        similarly to the model.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :return: a dict containing the following keys:
+                 - 'sample': a random sample from the model.
+                 - 'pred_xstart': a prediction of x_0.
+        """
+
+        out = super().p_mean_variance(
+            model,
+            x,
+            t,
+            clip_denoised=clip_denoised,
+            denoised_fn=denoised_fn,
+            model_kwargs=model_kwargs
+        )
+        sample, pred_xstart, x0 = out["sample"], out["pred_xstart"], out["mean"]
+        
+        sample, _ = self.measurement_update(x=x, x0=x0, x_old=sample, y=y)
+
+        return {"sample": sample,
+                "pred_xstart": pred_xstart, 
+                "mean": x0} 
+
 
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):

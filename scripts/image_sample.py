@@ -42,6 +42,8 @@ def main():
     logger.configure()
 
     logger.log("creating model and diffusion...")
+
+    # Define the diffusion model
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
@@ -49,8 +51,6 @@ def main():
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
     model.to(dist_util.dev())
-    if args.use_fp16:
-        model.convert_to_fp16()
     model.eval()
 
     logger.log("sampling...")
@@ -67,6 +67,12 @@ def main():
         sample_fn = (
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
+        if args.dps_update:
+            sample = sample_fn(
+                model,
+
+            )
+
         sample = sample_fn(
             model,
             (args.batch_size, 3, args.image_size, args.image_size),

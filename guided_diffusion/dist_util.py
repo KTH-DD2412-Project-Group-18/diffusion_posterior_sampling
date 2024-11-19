@@ -1,5 +1,6 @@
 """
 Helpers for distributed training.
+- CUDA, MPS and 
 """
 
 import io
@@ -26,10 +27,8 @@ def setup_dist():
     """
     if dist.is_initialized():
         return
-    
-    if th.backends.mps.is_available():
-        backend = "gloo"  # MPS requires gloo backend for distributed training
-    elif th.cuda.is_available():
+
+    if th.cuda.is_available():
         os.environ["CUDA_VISIBLE_DEVICES"] = f"{MPI.COMM_WORLD.Get_rank() % GPUS_PER_NODE}"
         backend = "nccl"
     else:
