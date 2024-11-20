@@ -147,7 +147,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             self.measurement = measurement.to("cuda")
         else: 
             self.measurement = measurement
-
+        self.measurement = self.measurement.requires_grad_(True)
         self.noise_model = noise_model
         self.step_size = step_size
         if self.noise_model == "gaussian":
@@ -167,18 +167,16 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
 
         x = x.detach().clone()
         x.requires_grad_(True)
-    
+        x0 = x0.requires_grad_(True)
+
         if len(x0.shape) == 4:
             x0 = x0[0] 
         
-        out = self.measurement_model(x0) # A(E[x_0|x])
+        out = self.measurement_model(x0).requires_grad_(True) # A(E[x_0|x])
         loss = self.measurement_loss(out, self.measurement)
 
-        if not loss.requires_grad:
-            loss.requires_grad_(True)
-
         #TODO: Fix this. Torch can't reach x for autograd??
-        grad = th.autograd.grad(loss, x)
+        grad = th.autograd.grad(loss, x0,create_graph=False)[0]
         
         with th.no_grad():
             zeta_i = (self.step_size / loss.item())
@@ -222,7 +220,10 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs
         )
-        
+        #
+        #print("hello? yes this is dog?")
+        #print(x.requires_grad)
+        #
         sample = out["sample"]
         pred_xstart = out["pred_xstart"]
         x_mean = out["mean"]
