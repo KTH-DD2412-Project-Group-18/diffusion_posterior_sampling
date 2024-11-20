@@ -3,6 +3,11 @@
 # https://openreview.net/forum?id=OnD9zGAGT0k
 # ====================================================================== #
 import torch
+import torch.nn.functional as F
+import argparse
+import yaml   
+from blur_models.kernel_encoding.kernel_wizard import KernelWizard
+from motionblur import Kernel
 
 class RandomInpainting(object):
     """ 
@@ -29,7 +34,7 @@ class RandomInpainting(object):
         mask = torch.rand((n,d)) > 0.5
         x = tensor * mask
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size())*self.sigma
+            return x + torch.randn(size=x.size())*self.sigma**2
         elif self.noise_model == "poisson":
             return torch.poisson(x) 
         else: 
@@ -76,7 +81,7 @@ class BoxInpainting(object):
         x1, x2, box_h, box_w = self.box(x)
         
         if self.noise_model == "gaussian":
-            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma
+            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma**2
             return x
         elif self.noise_model == "poisson":
             x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.poisson(x[:, x1:x1 + box_h, x2:x2 + box_w])
@@ -104,4 +109,96 @@ class LinearBlurring(object):
         pass
 
 
+class NonLinearBlurring(object):
+    """
+    Implements the non-linear blurring forward measurement model.
+    y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
+    y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
+    F(x,k) is a external pretrained model from (see link)
+        link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
+    """
+    def __init__(self, noise_model="gaussian", sigma=1.):
+        self.sigma = sigma
+        if (noise_model != "gaussian") and (noise_model != "poisson"):
+            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
+            return ValueError 
+        self.noise_model = noise_model
+
+    def generate_blur(self, tensor):
+        # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py  
+        yml_path = "./data/blur_models/default.yml"
+        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+
+        # Initializing mode
+        with open(yml_path, "r") as f:
+            opt = yaml.load(f, Loader=yaml.SafeLoader)["KernelWizard"]
+            model_path = opt["pretrained"]
+        model = KernelWizard(opt)
+        model.eval()
+        model.load_state_dict(torch.load(model_path, map_location=device))
         
+        with torch.no_grad():
+            kernel = torch.randn((1, 512, 2, 2)) * 1.2
+            # NOTE: The normalization transformations below was taken from DPS repo. 
+            tensor = (tensor + 1.0) / 2.0  #[-1, 1] -> [0, 1]
+            LQ_tensor = model.adaptKernel(tensor, kernel=kernel)
+            LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1) #[0, 1] -> [-1, 1]
+
+        return LQ_tensor
+
+    def __call__(self, tensor):
+        blurred_img = self.generate_blur(tensor)
+        x = blurred_img
+
+        if self.noise_model == "gaussian":
+            return x + torch.randn(size=x.size())*self.sigma**2
+        elif self.noise_model == "poisson":
+            return torch.poisson(x) 
+        else: 
+            return None
+        
+class GaussianBlur(object):
+    """
+    Implements the Gaussian convolution (Gaussian noise) forward measurement model.
+    The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
+    the measurement. 
+    """
+    def __init__(self, kernel_size, sigma):
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+
+    def gaussian_kernel(self):
+        size = self.kernel_size[0]
+        x = torch.linspace(-(size // 2), size // 2, size)
+        y = torch.linspace(-(size // 2), size // 2, size)
+        x, y = torch.meshgrid(x, y, indexing='xy')
+        kernel = torch.exp(-(x**2 + y**2) / (2 * self.sigma**2))
+        kernel /= kernel.sum()  
+        return kernel
+
+    def __call__(self, tensor):
+        kernel = self.gaussian_kernel()
+        kernel = kernel.unsqueeze(0).unsqueeze(0)
+        num_channels = tensor.size(0)
+        kernel = kernel.repeat(num_channels, 1, 1, 1)
+        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=3)
+        return blurred
+    
+class MotionBlur(object):
+    """
+    Implements the motion blur forward measurement model. 
+    The motion blur kernel is an external kernel from (see link)
+        link: https://github.com/LeviBorodenko/motionblur/tree/master
+    """
+    def __init__(self, kernel_size, intensity) -> None:
+        self.kernel_size = kernel_size
+        self.intensity = intensity
+
+    def __call__(self, tensor):
+        kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
+        kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype)
+        kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
+        num_channels = tensor.size(0)
+        kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1) 
+        blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=3)
+        return blurred
