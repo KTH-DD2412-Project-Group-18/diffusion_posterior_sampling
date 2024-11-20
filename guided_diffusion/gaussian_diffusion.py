@@ -349,19 +349,17 @@ class GaussianDiffusion:
             if self.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = process_xstart(model_output)
             else:
-                #TODO: We probably do not want to be doing all this here, rather in the DiffusionPosteriorSampling-class
-                # 
-                # original ddpm x_0
-                #
-                # pred_xstart = process_xstart(
-                #     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
-                # )
-
-                # x_0_hat from DPS
+                
+                ## original DDPM - x0_hat
                 pred_xstart = process_xstart(
+                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
+                )
+
+                # x0_hat from DPS
+                x0_hat = process_xstart(
                     self._predict_xstart_mean_from_eps(x_t=x,t=t,eps=model_output)
                 )
- 
+
             model_mean, _, _ = self.q_posterior_mean_variance(
                 x_start=pred_xstart, x_t=x, t=t
             )
@@ -376,6 +374,7 @@ class GaussianDiffusion:
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
+            "x0_hat": x0_hat
         }
     
     def forward_diffusion(self, x_start, t, noise=None):
@@ -482,9 +481,10 @@ class GaussianDiffusion:
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
+                img_with_grad = img.detach().clone().requires_grad_(True)
                 out = self.p_sample(
                     model,
-                    img,
+                    img_with_grad,
                     t,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
@@ -492,7 +492,7 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                 )
                 yield out
-            img = out["sample"]
+            img = out["sample"].detach()
 
     def p_sample(
         self,
@@ -543,7 +543,8 @@ class GaussianDiffusion:
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
         return {"sample": sample, 
                 "pred_xstart": out["pred_xstart"],
-                "mean": out["mean"]} 
+                "mean": out["mean"],
+                "x0_hat": out["x0_hat"]} 
 
     def ddim_sample(
         self,

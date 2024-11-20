@@ -164,24 +164,19 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                    x_old: th.Tensor,
     ) -> th.Tensor: 
         """ Compute the gradient and posterior sample using equation 16"""
-
-        x = x.detach().clone()
-        x.requires_grad_(True)
-        x0 = x0.requires_grad_(True)
-
+        assert x.requires_grad, "x needs to have gradients enabled!"
+        
+        # TODO: How do we handle the batch-dimension efficiently?
         if len(x0.shape) == 4:
             x0 = x0[0] 
         
-        out = self.measurement_model(x0).requires_grad_(True) # A(E[x_0|x])
+        out = self.measurement_model(x0)
         loss = self.measurement_loss(out, self.measurement)
-
-        #TODO: Fix this. Torch can't reach x for autograd??
-        grad = th.autograd.grad(loss, x0,create_graph=False)[0]
+        grad = th.autograd.grad(loss, x, retain_graph=False)[0]
         
         with th.no_grad():
-            zeta_i = (self.step_size / loss.item())
+            zeta_i = (self.step_size / np.sqrt(loss.item()))
             x_new = x_old - zeta_i * grad
-        
         return x_new
     
     def p_sample(
@@ -211,7 +206,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                  - 'sample': a random sample from the model.
                  - 'pred_xstart': a prediction of x_0.
         """
-
+        x = x.detach().requires_grad_(True)
         out = super().p_sample(
             model,
             x,
@@ -220,23 +215,59 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs
         )
-        #
-        #print("hello? yes this is dog?")
-        #print(x.requires_grad)
-        #
-        sample = out["sample"]
-        pred_xstart = out["pred_xstart"]
-        x_mean = out["mean"]
         
-        sample = self.dps_update(x=x, x0=pred_xstart, x_old=x_mean)
+        x0_hat = out["x0_hat"]
+        x_mean = out["mean"]
+        sample = self.dps_update(x=x, x0=x0_hat, x_old=x_mean)
 
         return {
             "sample": sample,
-            "pred_xstart": pred_xstart, 
-            "mean": x_mean
+            "pred_xstart": out["pred_xstart"], 
+            "mean": x_mean,
+            "x0_hat": x0_hat
         }
+    
+    def p_sample_loop_progressive(
+        self,
+        model,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+    ):
+        """Generate samples from the model and yield intermediate samples."""
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
+        if noise is not None:
+            img = noise
+        else:
+            img = th.randn(*shape, device=device)
+        indices = list(range(self.num_timesteps))[::-1]
 
- 
+        if progress:
+            from tqdm.auto import tqdm
+            indices = tqdm(indices)
+
+        for i in indices:
+            t = th.tensor([i] * shape[0], device=device)
+            with th.set_grad_enabled(True):
+                out = self.p_sample(
+                    model,
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    denoised_fn=denoised_fn,
+                    cond_fn=cond_fn,
+                    model_kwargs=model_kwargs,
+                )
+                yield out
+                img = out["sample"]
+
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
         self.model = model
