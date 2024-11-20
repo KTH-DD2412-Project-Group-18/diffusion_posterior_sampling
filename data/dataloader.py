@@ -1,10 +1,10 @@
 import torch
-from torchvision import datasets
-from torchvision import transforms
+from torchvision import (datasets, transforms)
 from measurement_models import RandomInpainting, BoxInpainting
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 
 if __name__ == "__main__":
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     img = img.permute(1, 2, 0).numpy()
     img = np.clip(img, 0, 1)
 
-    plt.figure(figsize=(10, 10))
-    plt.imshow(img)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(img)
     plt.axis('off')
-    plt.show()
+    fig.savefig("./fishman.png")

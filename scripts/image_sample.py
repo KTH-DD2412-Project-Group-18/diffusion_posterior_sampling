@@ -7,20 +7,16 @@ Modified by Dan Vicente in November 2024
 
 import os
 from datetime import datetime
-
-# Set CPU thread settings at (to limit CPU usage locally) 
-# os.environ["OMP_NUM_THREADS"] = "2"  # OpenMP threads
-# os.environ["MKL_NUM_THREADS"] = "2"  # MKL threads
-# os.environ["NUMEXPR_NUM_THREADS"] = "2"  # NumExpr threads
-# os.environ["VECLIB_MAXIMUM_THREADS"] = "2"  # Vector library threads (specific to Mac)
-
 import argparse
 import os
 import sys
 import numpy as np
 import torch as th
 import torch.distributed as dist
-
+from data.measurement_models import (RandomInpainting, 
+                                     BoxInpainting)
+from torchvision import (datasets, 
+                         transforms)
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
     NUM_CLASSES,
@@ -28,12 +24,28 @@ from guided_diffusion.script_util import (
     create_model_and_diffusion,
     add_dict_to_argparser,
     args_to_dict,
+    get_measurement_model,
+    create_dps_diffusion
 )
+from PIL import Image
+import matplotlib.pyplot as plt
+from guided_diffusion.respace import DiffusionPosteriorSampling
 
+
+# Set CPU/GPU thread limits for paralleelization
+# os.environ["OMP_NUM_THREADS"] = "2"  # OpenMP threads
+# os.environ["MKL_NUM_THREADS"] = "2"  # MKL threads
+# os.environ["NUMEXPR_NUM_THREADS"] = "2"  # NumExpr threads
+# os.environ["VECLIB_MAXIMUM_THREADS"] = "2"  # Vector library threads (specific to Mac)
 ##  for images:
 ##  --meas_model "super-resolution", "inpainting", "linear-deblurring", "nonlinear-deblurring", "phase-retrieval"
 ## for audio: ??
 ##
+
+def denormalize(tensor):
+                mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+                std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+                return tensor * std + mean
 
 def main():
     args = create_argparser().parse_args()
@@ -43,7 +55,6 @@ def main():
 
     logger.log("creating model and diffusion...")
 
-    # Define the diffusion model
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
@@ -68,32 +79,80 @@ def main():
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
         if args.dps_update:
-            sample = sample_fn(
-                model,
-
+            # =========================================== #
+            # Perform the DPS sampling as in algorithm 1/2
+            # =========================================== #
+            measurement_model = get_measurement_model(
+                 name=args.measurement_model,
+                 noise_model=args.noise_model,
+                 sigma=args.sigma
             )
 
-        sample = sample_fn(
-            model,
-            (args.batch_size, 3, args.image_size, args.image_size),
-            clip_denoised=args.clip_denoised,
-            model_kwargs=model_kwargs,
-        )
+            data = datasets.ImageFolder("./datasets/imagenet/val", 
+                                            transform= transforms.Compose([
+                                                transforms.ToTensor(),
+                                                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                                                measurement_model
+                      ])
+                      )
+            dataloader = th.utils.data.DataLoader(
+                data,
+                batch_size=10,
+                shuffle=False
+            )
+            imgs, _ = next(iter(dataloader))
 
-        print("Raw sample stats:")
-        print(f"Shape: {sample.shape}")
-        print(f"Device: {sample.device}")
-        print(f"Range: [{sample.min().item():.3f}, {sample.max().item():.3f}]")
-        print(f"Mean: {sample.mean().item():.3f}")
+            # Create the DPS model with all necessary parameters
+            dps_diffusion = create_dps_diffusion(
+                measurement_model=measurement_model,
+                measurement=imgs[0],
+                noise_model=args.noise_model,
+                step_size=1.0,
+                image_size=args.image_size,
+                learn_sigma=args.learn_sigma,
+                diffusion_steps=args.diffusion_steps,
+                noise_schedule=args.noise_schedule,
+                timestep_respacing=args.timestep_respacing,
+                use_kl=args.use_kl,
+                predict_xstart=args.predict_xstart,
+                rescale_timesteps=args.rescale_timesteps,
+                rescale_learned_sigmas=args.rescale_learned_sigmas
+            )
+            
+            sample_fn = (
+                dps_diffusion.p_sample_loop if not args.use_ddim else dps_diffusion.ddim_sample_loop
+            )
+
+            # denoise sampling using first image in batch (should be the same every time if we have shuffle=False)
+            sample = sample_fn(
+                model,
+                (args.batch_size, 3, args.image_size, args.image_size),
+                clip_denoised=args.clip_denoised,
+                model_kwargs=model_kwargs
+            )
+            
+            # Also save image for reference
+            img = denormalize(imgs[0])
+            img = img.permute(1,2,0).numpy()
+            img = np.clip(img, 0, 1)
+            
+            fig, ax = plt.subplots()
+            ax.imshow(img)
+            plt.axis("off")
+            meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
+            fig.savefig(meas_path)
+
+        else:
+            sample = sample_fn(
+                model,
+                (args.batch_size, 3, args.image_size, args.image_size),
+                clip_denoised=args.clip_denoised,
+                model_kwargs=model_kwargs,
+            )
 
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
         sample = sample.permute(0, 2, 3, 1)
         sample = sample.contiguous()
-
-        print("\nNormalized sample stats:")
-        print(f"Shape: {sample.shape}")
-        print(f"Range: [{sample.min().item()}, {sample.max().item()}]")
-        print(f"Mean: {sample.float().mean().item():.3f}")
 
         if dist.get_world_size() > 1:
             gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
@@ -132,7 +191,6 @@ def main():
         else:
             np.savez(out_path, arr)
         try:
-            from PIL import Image
             if arr.shape[0] > 0:
                 img = Image.fromarray(arr[0])
                 img_path = os.path.join(logger.get_dir(), "sample_0.png")
@@ -144,7 +202,7 @@ def main():
     dist.barrier()
     logger.log("sampling complete")
     t_end = datetime.now()
-    t_execution = t_end - t_start
+    t_execution = (t_end - t_start)
     print(f"Elapsed time during sampling = {t_execution}")
 
 def create_argparser():
@@ -154,6 +212,10 @@ def create_argparser():
         batch_size=16,
         use_ddim=False,
         model_path="./models/512x512_diffusion.pt",
+        dps_update=True,
+        measurement_model="BoxInpainting",
+        noise_model="gaussian",
+        sigma=1.0,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

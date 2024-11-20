@@ -1,10 +1,10 @@
 import argparse
 
 from . import gaussian_diffusion as gd
-from .respace import SpacedDiffusion, space_timesteps
+from .respace import SpacedDiffusion, space_timesteps, DiffusionPosteriorSampling
+from data.measurement_models import (RandomInpainting, 
+                                     BoxInpainting)
 from .unet import UNetModel
-import torch as th
-import numpy as np
 NUM_CLASSES = 1000
 
 
@@ -92,7 +92,8 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
     )
-    # TODO: probably change this
+
+    # Changed this to create the DPS sampler instead
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
         learn_sigma=learn_sigma,
@@ -162,6 +163,58 @@ def create_model(
         use_new_attention_order=use_new_attention_order,
     )
 
+def create_dps_diffusion(
+    measurement_model,
+    measurement,
+    noise_model,
+    step_size,
+    image_size,
+    learn_sigma,
+    diffusion_steps,
+    noise_schedule,
+    timestep_respacing,
+    use_kl,
+    predict_xstart,
+    rescale_timesteps,
+    rescale_learned_sigmas,
+    sigma_small=False,
+    **kwargs  # To catch any other args we might need
+):
+    # Get the base diffusion parameters just like in create_gaussian_diffusion
+    betas = gd.get_named_beta_schedule(noise_schedule, diffusion_steps)
+    if use_kl:
+        loss_type = gd.LossType.RESCALED_KL
+    elif rescale_learned_sigmas:
+        loss_type = gd.LossType.RESCALED_MSE
+    else:
+        loss_type = gd.LossType.MSE
+
+    if not timestep_respacing:
+        timestep_respacing = [diffusion_steps]
+
+    return DiffusionPosteriorSampling(
+        use_timesteps=space_timesteps(diffusion_steps, timestep_respacing),
+        betas=betas,
+        model_mean_type=(
+            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
+        ),
+        model_var_type=(
+            (
+                gd.ModelVarType.FIXED_LARGE
+                if not sigma_small
+                else gd.ModelVarType.FIXED_SMALL
+            )
+            if not learn_sigma
+            else gd.ModelVarType.LEARNED_RANGE
+        ),
+        loss_type=loss_type,
+        rescale_timesteps=rescale_timesteps,
+        measurement_model=measurement_model,
+        measurement=measurement,
+        noise_model=noise_model,
+        step_size=step_size
+    )
+
 
 def create_gaussian_diffusion(
     *,
@@ -204,19 +257,25 @@ def create_gaussian_diffusion(
     )
 
 
-def add_dict_to_argparser(parser, default_dict):
-    for k, v in default_dict.items():
-        v_type = type(v)
-        if v is None:
-            v_type = str
-        elif isinstance(v, bool):
-            v_type = str2bool
-        parser.add_argument(f"--{k}", default=v, type=v_type)
+def dps_sampling(sample_fn, model, measurement_model):
+    pass
 
+def get_measurement_model(name, noise_model, sigma):
+    """Import measurement model class from data.measurement_models"""
+
+    available_models = {
+        "BoxInpainting": BoxInpainting,
+        "RandomInpainting": RandomInpainting
+    }
+    if name not in available_models:
+        print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")
+        return ValueError
+    else:
+        model = available_models[name]
+        return model(noise_model=noise_model,sigma=sigma) if (noise_model == "gaussian") else model(noise_model=noise_model)
 
 def args_to_dict(args, keys):
     return {k: getattr(args, k) for k in keys}
-
 
 def str2bool(v):
     """
@@ -231,3 +290,14 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError("boolean value expected")
 
+def add_dict_to_argparser(parser, default_dict):
+    for k, v in default_dict.items():
+        v_type = type(v)
+        if v is None:
+            v_type = str
+        elif isinstance(v, bool):
+            v_type = str2bool
+        elif k == "measurement_model":
+            v_type = str
+
+        parser.add_argument(f"--{k}", default=v, type=v_type)

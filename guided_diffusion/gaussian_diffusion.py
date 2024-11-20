@@ -379,7 +379,6 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
-        measurement=None,
         model_kwargs=None,
         device=None,
         progress=False,
@@ -411,7 +410,6 @@ class GaussianDiffusion:
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,
-            measurement=None,
             model_kwargs=model_kwargs,
             device=device,
             progress=progress,
@@ -427,7 +425,6 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
-        measurement = None,
         model_kwargs=None,
         device=None,
         progress=False,
@@ -465,7 +462,6 @@ class GaussianDiffusion:
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     cond_fn=cond_fn,
-                    measurement=measurement,
                     model_kwargs=model_kwargs,
                 )
                 yield out
@@ -479,7 +475,6 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
-        measurement=None,
         model_kwargs=None,
     ):
         """

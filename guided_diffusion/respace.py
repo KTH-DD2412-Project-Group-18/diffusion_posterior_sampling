@@ -113,7 +113,7 @@ class PoissonMseLoss(th.nn.Module):
     
     def forward(self, x, y):
         assert x.shape == y.shape, f"Shape missmatch between operator with shape {x.shape} and observation with shape {y.shape}"
-        lambda_matrix = th.diag(1./(2*y))
+        lambda_matrix = th.diag(1. / (2*y))
         diff = (x - y)
         loss = diff.T @ lambda_matrix @ diff
         return loss
@@ -156,17 +156,28 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                    x: th.Tensor, 
                    x0: th.Tensor, 
                    x_old: th.Tensor,
-                   y: th.Tensor,
     ) -> th.Tensor: 
         """ Compute the gradient and posterior sample using equation 16"""
-        x.requires_grad(True)
-        out = self.measurement_operator(x0)
-        loss = self.loss(out, y)
+        print("Shapes in dps_update:")
+        print(f"x shape: {x.shape}")
+        print(f"x0 shape: {x0.shape}")
+        print(f"x_old shape: {x_old.shape}")
+        print(f"y shape: {self.measurement.shape}")
+        
+        x = x.detach().clone()
+        x.requires_grad_(True)
+        
+        if len(x0.shape) == 4:
+            x0 = x0[0]
+            
+        out = self.measurement_model(x0)
+        loss = self.measurement_loss(out, self.measurement)
         grad = th.autograd.grad(loss, x)[0]
+        
         with th.no_grad():
-            zeta_i = (self.step_size / loss)
-            x_new = x_old -  zeta_i * grad  # DPS sample update
-            x_new.grad.zero()
+            zeta_i = (self.step_size / loss.item())
+            x_new = x_old - zeta_i * grad
+        
         return x_new
     
     def p_sample(
@@ -177,7 +188,6 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
-        y=None,
         model_kwargs=None,
     ):
         """
@@ -198,7 +208,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                  - 'pred_xstart': a prediction of x_0.
         """
 
-        out = super().p_mean_variance(
+        out = super().p_sample(
             model,
             x,
             t,
@@ -206,13 +216,18 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs
         )
-        sample, pred_xstart, x0 = out["sample"], out["pred_xstart"], out["mean"]
         
-        sample, _ = self.measurement_update(x=x, x0=x0, x_old=sample, y=y)
+        sample = out["sample"]
+        pred_xstart = out["pred_xstart"]
+        x0 = out["mean"]
+        
+        sample = self.dps_update(x=x, x0=x0, x_old=sample)
 
-        return {"sample": sample,
-                "pred_xstart": pred_xstart, 
-                "mean": x0} 
+        return {
+            "sample": sample,
+            "pred_xstart": pred_xstart, 
+            "mean": x0
+        }
 
 
 class _WrappedModel:

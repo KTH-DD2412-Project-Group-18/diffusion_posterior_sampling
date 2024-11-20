@@ -50,10 +50,10 @@ class BoxInpainting(object):
     """
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {self.noise_model} not implemented! Use 'gaussian' or 'poisson' ")
-            return ValueError 
         self.noise_model = noise_model
+        if (noise_model != "gaussian") and (noise_model != "poisson"):
+            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson' ")
+            return ValueError 
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""
