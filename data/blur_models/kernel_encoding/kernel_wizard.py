@@ -1,10 +1,10 @@
 import functools
 
-import blur_models.arch_util as arch_util
+import data.blur_models.arch_util as arch_util
 import torch
 import torch.nn as nn
-from blur_models.backbones.resnet import ResidualBlock_noBN, ResnetBlock
-from blur_models.backbones.unet_parts import UnetSkipConnectionBlock
+from data.blur_models.backbones.resnet import ResidualBlock_noBN, ResnetBlock
+from data.blur_models.backbones.unet_parts import UnetSkipConnectionBlock
 
 
 # The function F in the paper

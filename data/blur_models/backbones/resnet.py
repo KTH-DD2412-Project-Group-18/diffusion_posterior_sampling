@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from blur_models.arch_util import initialize_weights
+from data.blur_models.arch_util import initialize_weights
 
 
 class ResnetBlock(nn.Module):

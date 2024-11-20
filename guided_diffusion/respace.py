@@ -141,7 +141,13 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
     ):
         super().__init__(use_timesteps, **kwargs)
         self.measurement_model = measurement_model
-        self.measurement = measurement # y = A(x) + n, where x is the clean sample
+        if th.backends.mps.is_available():
+            self.measurement = measurement.to("mps") # y = A(x) + n, where x is the clean sample
+        elif th.backends.cuda.is_available():
+            self.measurement = measurement.to("cuda")
+        else: 
+            self.measurement = measurement
+
         self.noise_model = noise_model
         self.step_size = step_size
         if self.noise_model == "gaussian":
@@ -158,21 +164,21 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                    x_old: th.Tensor,
     ) -> th.Tensor: 
         """ Compute the gradient and posterior sample using equation 16"""
-        print("Shapes in dps_update:")
-        print(f"x shape: {x.shape}")
-        print(f"x0 shape: {x0.shape}")
-        print(f"x_old shape: {x_old.shape}")
-        print(f"y shape: {self.measurement.shape}")
-        
+
         x = x.detach().clone()
         x.requires_grad_(True)
-        
+    
         if len(x0.shape) == 4:
-            x0 = x0[0]
-            
-        out = self.measurement_model(x0)
+            x0 = x0[0] 
+        
+        out = self.measurement_model(x0) # A(E[x_0|x])
         loss = self.measurement_loss(out, self.measurement)
-        grad = th.autograd.grad(loss, x)[0]
+
+        if not loss.requires_grad:
+            loss.requires_grad_(True)
+
+        #TODO: Fix this. Torch can't reach x for autograd??
+        grad = th.autograd.grad(loss, x)
         
         with th.no_grad():
             zeta_i = (self.step_size / loss.item())
@@ -219,14 +225,14 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         sample = out["sample"]
         pred_xstart = out["pred_xstart"]
-        x0 = out["mean"]
+        x_mean = out["mean"]
         
-        sample = self.dps_update(x=x, x0=x0, x_old=sample)
+        sample = self.dps_update(x=x, x0=pred_xstart, x_old=x_mean)
 
         return {
             "sample": sample,
             "pred_xstart": pred_xstart, 
-            "mean": x0
+            "mean": x_mean
         }
 
 

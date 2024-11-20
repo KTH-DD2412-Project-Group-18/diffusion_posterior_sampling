@@ -165,6 +165,10 @@ class GaussianDiffusion:
         )
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
+        """
+        Predicts \hat{x0} = E[x0|x_t] given the score "eps".
+        in other words, step 4 of algorithm 1 in DPS
+        """
         assert x_t.shape == eps.shape
         return (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
@@ -182,6 +186,9 @@ class GaussianDiffusion:
         )
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):
+        """
+        Predict eps from x_start
+        """
         return (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
             - pred_xstart
@@ -234,8 +241,9 @@ class GaussianDiffusion:
     def q_posterior_mean_variance(self, x_start, x_t, t):
         """
         Compute the mean and variance of the diffusion posterior:
-
             q(x_{t-1} | x_t, x_0)
+
+        In other words: this gives us step 6 of the algorithm in DPS
 
         """
         assert x_start.shape == x_t.shape

@@ -2,12 +2,13 @@
 # In this script we apply the "forward" measurement models as defined in 
 # https://openreview.net/forum?id=OnD9zGAGT0k
 # ====================================================================== #
+import os
 import torch
 import torch.nn.functional as F
 import argparse
 import yaml   
-from blur_models.kernel_encoding.kernel_wizard import KernelWizard
-from motionblur import Kernel
+from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
+from data.motionblur import Kernel
 
 class RandomInpainting(object):
     """ 
@@ -125,8 +126,10 @@ class NonLinearBlurring(object):
         self.noise_model = noise_model
 
     def generate_blur(self, tensor):
-        # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py  
-        yml_path = "./data/blur_models/default.yml"
+        # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py 
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        yml_path = os.path.join(current_dir, "blur_models", "default.yml") 
+        print(yml_path)
         device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         # Initializing mode
