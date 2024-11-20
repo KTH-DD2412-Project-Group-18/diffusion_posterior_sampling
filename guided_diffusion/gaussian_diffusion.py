@@ -347,8 +347,9 @@ class GaussianDiffusion:
             if self.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = process_xstart(model_output)
             else:
+                #TODO: We probably do not want to be doing all this here, rather in the DiffusionPosteriorSampling-class
                 # 
-                #original ddpm x_0
+                # original ddpm x_0
                 #
                 # pred_xstart = process_xstart(
                 #     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
@@ -358,7 +359,7 @@ class GaussianDiffusion:
                 pred_xstart = process_xstart(
                     self._predict_xstart_mean_from_eps(x_t=x,t=t,eps=model_output)
                 )
-
+ 
             model_mean, _, _ = self.q_posterior_mean_variance(
                 x_start=pred_xstart, x_t=x, t=t
             )
@@ -478,16 +479,17 @@ class GaussianDiffusion:
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
-            out = self.p_sample(
-                model,
-                img,
-                t,
-                clip_denoised=clip_denoised,
-                denoised_fn=denoised_fn,
-                cond_fn=cond_fn,
-                model_kwargs=model_kwargs,
-            )
-            yield out
+            with th.no_grad():
+                out = self.p_sample(
+                    model,
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    denoised_fn=denoised_fn,
+                    cond_fn=cond_fn,
+                    model_kwargs=model_kwargs,
+                )
+                yield out
             img = out["sample"]
 
     def p_sample(
