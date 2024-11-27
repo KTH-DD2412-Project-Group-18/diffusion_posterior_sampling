@@ -174,58 +174,59 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         loss = self.measurement_loss(out, self.measurement)
         grad = th.autograd.grad(loss, x, retain_graph=False)[0]
         
+        
         with th.no_grad():
             zeta_i = (self.step_size / np.sqrt(loss.item()))
             x_new = x_old - zeta_i * grad
         return x_new
     
-    def p_sample(
-        self,
-        model,
-        x,
-        t,
-        clip_denoised=True,
-        denoised_fn=None,
-        cond_fn=None,
-        model_kwargs=None,
-    ):
-        """
-        Sample x_{t-1} from the model at the given timestep.
+    # def p_sample(
+    #     self,
+    #     model,
+    #     x,
+    #     t,
+    #     clip_denoised=True,
+    #     denoised_fn=None,
+    #     cond_fn=None,
+    #     model_kwargs=None,
+    # ):
+    #     """
+    #     Sample x_{t-1} from the model at the given timestep.
 
-        :param model: the model to sample from.
-        :param x: the current tensor at x_{t-1}.
-        :param t: the value of t, starting at 0 for the first diffusion step.
-        :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
-        :param denoised_fn: if not None, a function which applies to the
-            x_start prediction before it is used to sample.
-        :param cond_fn: if not None, this is a gradient function that acts
-                        similarly to the model.
-        :param model_kwargs: if not None, a dict of extra keyword arguments to
-            pass to the model. This can be used for conditioning.
-        :return: a dict containing the following keys:
-                 - 'sample': a random sample from the model.
-                 - 'pred_xstart': a prediction of x_0.
-        """
-        x = x.detach().requires_grad_(True)
-        out = super().p_sample(
-            model,
-            x,
-            t,
-            clip_denoised=clip_denoised,
-            denoised_fn=denoised_fn,
-            model_kwargs=model_kwargs
-        )
+    #     :param model: the model to sample from.
+    #     :param x: the current tensor at x_{t-1}.
+    #     :param t: the value of t, starting at 0 for the first diffusion step.
+    #     :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
+    #     :param denoised_fn: if not None, a function which applies to the
+    #         x_start prediction before it is used to sample.
+    #     :param cond_fn: if not None, this is a gradient function that acts
+    #                     similarly to the model.
+    #     :param model_kwargs: if not None, a dict of extra keyword arguments to
+    #         pass to the model. This can be used for conditioning.
+    #     :return: a dict containing the following keys:
+    #              - 'sample': a random sample from the model.
+    #              - 'pred_xstart': a prediction of x_0.
+    #     """
+    #     x = x.detach().requires_grad_(True)
+    #     out = super().p_sample(
+    #         model,
+    #         x,
+    #         t,
+    #         clip_denoised=clip_denoised,
+    #         denoised_fn=denoised_fn,
+    #         model_kwargs=model_kwargs
+    #     )
         
-        x0_hat = out["x0_hat"]
-        x_mean = out["mean"]
-        sample = self.dps_update(x=x, x0=x0_hat, x_old=x_mean)
+    #     x0_hat = out["pred_xstart"]
+    #     x_mean = out["mean"]
+    #     sample = self.dps_update(x=x, x0=x0_hat, x_old=x_mean)
 
-        return {
-            "sample": sample,
-            "pred_xstart": out["pred_xstart"], 
-            "mean": x_mean,
-            "x0_hat": x0_hat
-        }
+    #     return {
+    #         "sample": sample,
+    #         "pred_xstart": out["pred_xstart"], 
+    #         "mean": x_mean,
+    #         "x0_hat": x0_hat
+    #     }
     
     def p_sample_loop_progressive(
         self,
