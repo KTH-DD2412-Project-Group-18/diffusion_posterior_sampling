@@ -53,9 +53,12 @@ def dev():
     Get the device to use for torch.distributed.
     """
     if th.backends.mps.is_available():
+        print("Using mps")
         return th.device("mps")
     elif th.cuda.is_available():
+        print("Using CUDA")
         return th.device("cuda")
+    print("Using CPU")
     return th.device("cpu")
 
 def safe_all_gather(tensor_list, tensor):
