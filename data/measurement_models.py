@@ -4,7 +4,7 @@
 # ====================================================================== #
 import torch
 import matplotlib.pyplot as plt
- 
+import numpy as np 
 
 class RandomInpainting(object):
     """ 
@@ -118,10 +118,15 @@ class SuperResolution(object):
         self.sigma = sigma
 
     def __call__(self, tensor):
-
-        # return self.__bicubic_downsample(tensor)
-        return tensor
-
+        # returns a downsampled image with added gaussian noise. I.e image from 256x256 -> 64x64 + gaussian noise
+        downsampled_image = self.bicubic_downsample(tensor)
+        noisy_downsample = self.add_gaussian_noise(downsampled_image, 64)
+        return noisy_downsample
+    
+    def denormalize(self, tensor):
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        return tensor * std + mean
     
     def bicubic_downsample(self, image):
         # batch_size, channels, height, width = images.shape
@@ -145,7 +150,7 @@ class SuperResolution(object):
         _, h, w = low_res_img.shape  # tensor shape is [channels, height, width]
         x_low_res = low_res_img
         x_upscaled = torch.zeros((3, h*self.upscale_factor, w*self.upscale_factor))
-        print("Shape of upscaled image tensor: ", x_upscaled.shape)
+        # print("Shape of upscaled image tensor: ", x_upscaled.shape)
         x_upscaled[:, ::self.upscale_factor, ::self.upscale_factor] = x_low_res
         mask = (x_upscaled == 0).float()  # Shape: (1, 3, 256, 256)
 
