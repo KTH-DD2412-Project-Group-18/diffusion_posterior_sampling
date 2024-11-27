@@ -3,7 +3,7 @@ from torchvision import datasets
 from torchvision import transforms
 from torchvision.transforms import ToPILImage
 
-from measurement_models import RandomInpainting, BoxInpainting, SuperResolution
+from measurement_models import RandomInpainting, BoxInpainting, NonLinearBlurring, GaussianBlur, MotionBlur
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,18 +11,24 @@ import numpy as np
 if __name__ == "__main__":
 
     measurement_model = BoxInpainting(noise_model="gaussian", sigma=1.)
-    super_res_model = SuperResolution(downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05)
+    measurement_model = SuperResolution(downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05)
+    #measurement_model = RandomInpainting(noise_model="gaussian", sigma=0.05)
+    #measurement_model = BoxInpainting(noise_model="gaussian", sigma=0.05)
+    #measurement_model = NonLinearBlurring(noise_model="gaussian", sigma=0.05)
+    #measurement_model, model = GaussianBlur(kernel_size=(61,61), sigma=3.0), 'Gaussian'
+    measurement_model = MotionBlur((61, 61), 0.5)
 
     # -- 
     # We create an ImageFolder with our transformation according to our measurement_model
     # NOTE: I run from root so in absolute term the path is ../datasets/imagenet/val
     # NOTE: in imagenet/val there are a bunch of class-folders containing .JPEG files, this is what `ImageFolder`` wants!
     # -- 
+
     val_data = datasets.ImageFolder("./datasets/imagenet/val", 
                       transform= transforms.Compose([
                           transforms.ToTensor(),
                           transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                          super_res_model # Change model object here to change measurement type
+                          measurement_model # Change model object here to change measurement type
                       ])
                       )
     
