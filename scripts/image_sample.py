@@ -13,6 +13,8 @@ import sys
 import numpy as np
 import torch as th
 import torch.distributed as dist
+from torchvision.transforms import ToPILImage
+
 from data.measurement_models import (RandomInpainting, 
                                      BoxInpainting)
 from torchvision import (datasets, 
@@ -205,6 +207,9 @@ def main():
         except Exception as e:
             logger.log(f"Failed to save sample image: {e}")
             
+    to_pil = ToPILImage()
+    image = to_pil(arr[0])
+    image.save("tmp_latest_sample.png")  
     # dist.barrier()
     logger.log("sampling complete")
     t_end = datetime.now()
