@@ -13,6 +13,8 @@ import sys
 import numpy as np
 import torch as th
 import torch.distributed as dist
+from torchvision.transforms import ToPILImage
+
 from data.measurement_models import (RandomInpainting, 
                                      BoxInpainting)
 from torchvision import (datasets, 
@@ -49,8 +51,9 @@ def denormalize(tensor):
 
 def main():
     args = create_argparser().parse_args()
+    rank = 0
 
-    dist_util.setup_dist()
+    # dist_util.setup_dist()
     logger.configure()
 
     logger.log("creating model and diffusion...")
@@ -155,7 +158,8 @@ def main():
         sample = sample.permute(0, 2, 3, 1)
         sample = sample.contiguous()
 
-        if dist.get_world_size() > 1:
+        # if dist.get_world_size() > 1: ###
+        if rank > 1:
             gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
             dist_util.safe_all_gather(gathered_samples, sample)
             all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
@@ -163,7 +167,9 @@ def main():
             all_images.append(sample.cpu().numpy())
 
         if args.class_cond:
-            if dist.get_world_size() > 1:
+            # 
+            # if dist.get_world_size() > 1:
+            if rank > 1:
                 gathered_labels = [th.zeros_like(classes) for _ in range(2)]
                 dist_util.safe_all_gather(gathered_labels, classes)
                 all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
@@ -183,7 +189,8 @@ def main():
     if args.class_cond:
         label_arr = np.concatenate(all_labels, axis=0)
         label_arr = label_arr[: args.num_samples]
-    if dist.get_rank() == 0:
+    # if dist.get_rank() == 0: ###
+    if rank == 0:
         shape_str = "x".join([str(x) for x in arr.shape])
         out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
         logger.log(f"saving to {out_path}")
@@ -200,7 +207,10 @@ def main():
         except Exception as e:
             logger.log(f"Failed to save sample image: {e}")
             
-    dist.barrier()
+    to_pil = ToPILImage()
+    image = to_pil(arr[0])
+    image.save("tmp_latest_sample.png")  
+    # dist.barrier()
     logger.log("sampling complete")
     t_end = datetime.now()
     t_execution = (t_end - t_start)
