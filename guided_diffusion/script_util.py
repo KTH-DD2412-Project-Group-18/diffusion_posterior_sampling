@@ -3,7 +3,11 @@ import argparse
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps, DiffusionPosteriorSampling
 from data.measurement_models import (RandomInpainting, 
-                                     BoxInpainting)
+                                     BoxInpainting,
+                                     SuperResolution,
+                                     NonLinearBlurring,
+                                     GaussianBlur,
+                                     MotionBlur)
 from .unet import UNetModel
 NUM_CLASSES = 1000
 
@@ -265,7 +269,11 @@ def get_measurement_model(name, noise_model, sigma):
 
     available_models = {
         "BoxInpainting": BoxInpainting,
-        "RandomInpainting": RandomInpainting
+        "RandomInpainting": RandomInpainting,
+        "SuperResolution": SuperResolution,
+        "NonLinearBlurring": NonLinearBlurring,
+        "GaussianBlur": GaussianBlur,
+        "MotionBlur": MotionBlur
     }
     if name not in available_models:
         print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")
