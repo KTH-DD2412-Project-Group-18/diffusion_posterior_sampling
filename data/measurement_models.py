@@ -11,6 +11,7 @@ import argparse
 import yaml   
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
+import cv2
 
 class RandomInpainting(object):
     """ 
