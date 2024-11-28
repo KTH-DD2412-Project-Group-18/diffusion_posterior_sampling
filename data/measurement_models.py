@@ -95,25 +95,6 @@ class BoxInpainting(object):
             return None
 
 
-class LinearBlurring(object):
-    """
-    Implements the inpainting forward measurement model
-    y ~ N(y| C^phi * x, sigma**2 * I) if self.noise_model = "gaussian"
-    y ~ Poisson(C^phi * x) if self.noise_model = "poisson
-    and C^phi is the convolution matrix of the given convolution kernel phi
-    Parameters: 
-    ----------
-        sigma = variance of Gaussian
-        phi = convolutional kernel
-        C = block hankel matrix
-    """
-
-    def __init__(self, sigma=1., ):
-        #self.sigma = sigma
-        #self.phi = torch.convolution() ###  <- think about this 
-        pass
-
-
 class SuperResolution(object):
 
     def __init__(self, downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05):
@@ -177,6 +158,7 @@ class SuperResolution(object):
 
         return x_upscaled_with_noise, mask
 
+
 class NonLinearBlurring(object):
     """
     Implements the non-linear blurring forward measurement model.
@@ -222,7 +204,8 @@ class NonLinearBlurring(object):
             return torch.poisson(x) 
         else: 
             return None
-        
+ 
+       
 class GaussianBlur(object):
     """
     Implements the Gaussian convolution (Gaussian noise) forward measurement model.
@@ -249,6 +232,7 @@ class GaussianBlur(object):
         kernel = kernel.repeat(num_channels, 1, 1, 1)
         blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=3)
         return blurred
+    
     
 class MotionBlur(object):
     """

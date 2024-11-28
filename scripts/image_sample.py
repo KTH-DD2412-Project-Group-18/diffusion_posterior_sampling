@@ -108,7 +108,7 @@ def main():
                 measurement_model=measurement_model,
                 measurement=imgs[0].to(dist_util.dev()),
                 noise_model=args.noise_model,
-                step_size=2.0,
+                step_size=100000,
                 image_size=args.image_size,
                 learn_sigma=args.learn_sigma,
                 diffusion_steps=args.diffusion_steps,
