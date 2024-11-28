@@ -147,7 +147,6 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             self.measurement = measurement.to("cuda")
         else: 
             self.measurement = measurement
-        self.measurement = self.measurement.requires_grad_(True)
         self.noise_model = noise_model
         self.step_size = step_size
         if self.noise_model == "gaussian":
@@ -160,73 +159,90 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
     
     def dps_update(self,
                    x: th.Tensor, 
+                   t: int,
                    x0: th.Tensor, 
                    x_old: th.Tensor,
     ) -> th.Tensor: 
         """ Compute the gradient and posterior sample using equation 16"""
         assert x.requires_grad, "x needs to have gradients enabled!"
         
-        # TODO: How do we handle the batch-dimension efficiently?
+        if x.grad is not None:
+            x.grad.zero_()
+
+        # # TODO: How do we handle the batch-dimension efficiently?
         if len(x0.shape) == 4:
-            x0 = x0[0] 
+            x0 = x0[0]
         
-        out = self.measurement_model(x0)
-        loss = self.measurement_loss(out, self.measurement)
-        grad = th.autograd.grad(loss, x, retain_graph=False)[0]
+        with th.enable_grad():
+            eps = self._predict_eps_from_xstart(x, t, x0)
+            x0 = self._predict_xstart_from_eps(x, t, eps)
         
-        
+            x0 = x0[0] if len(x0.shape) == 4 else x0
+
+            y_meas = self.measurement_model(x0)
+
+            loss = self.measurement_loss(y_meas, self.measurement)
+            loss.backward()
+            grad = x.grad
+
+            #grad = th.autograd.grad(loss, x)[0]
+
         with th.no_grad():
             zeta_i = (self.step_size / np.sqrt(loss.item()))
             x_new = x_old - zeta_i * grad
+
         return x_new
     
-    # def p_sample(
-    #     self,
-    #     model,
-    #     x,
-    #     t,
-    #     clip_denoised=True,
-    #     denoised_fn=None,
-    #     cond_fn=None,
-    #     model_kwargs=None,
-    # ):
-    #     """
-    #     Sample x_{t-1} from the model at the given timestep.
+    def p_sample(
+        self,
+        model,  
+        x,
+        t,
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+    ):
+        """
+        Sample x_{t-1} from the model at the given timestep.
 
-    #     :param model: the model to sample from.
-    #     :param x: the current tensor at x_{t-1}.
-    #     :param t: the value of t, starting at 0 for the first diffusion step.
-    #     :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
-    #     :param denoised_fn: if not None, a function which applies to the
-    #         x_start prediction before it is used to sample.
-    #     :param cond_fn: if not None, this is a gradient function that acts
-    #                     similarly to the model.
-    #     :param model_kwargs: if not None, a dict of extra keyword arguments to
-    #         pass to the model. This can be used for conditioning.
-    #     :return: a dict containing the following keys:
-    #              - 'sample': a random sample from the model.
-    #              - 'pred_xstart': a prediction of x_0.
-    #     """
-    #     x = x.detach().requires_grad_(True)
-    #     out = super().p_sample(
-    #         model,
-    #         x,
-    #         t,
-    #         clip_denoised=clip_denoised,
-    #         denoised_fn=denoised_fn,
-    #         model_kwargs=model_kwargs
-    #     )
-        
-    #     x0_hat = out["pred_xstart"]
-    #     x_mean = out["mean"]
-    #     sample = self.dps_update(x=x, x0=x0_hat, x_old=x_mean)
+        :param model: the model to sample from.
+        :param x: the current tensor at x_{t-1}.
+        :param t: the value of t, starting at 0 for the first diffusion step.
+        :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample.
+        :param cond_fn: if not None, this is a gradient function that acts
+                        similarly to the model.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :return: a dict containing the following keys:
+                 - 'sample': a random sample from the model.
+                 - 'pred_xstart': a prediction of x_0.
+        """
 
-    #     return {
-    #         "sample": sample,
-    #         "pred_xstart": out["pred_xstart"], 
-    #         "mean": x_mean,
-    #         "x0_hat": x0_hat
-    #     }
+        with th.no_grad():
+            out = super().p_sample(
+                model,
+                x,
+                t,
+                clip_denoised=clip_denoised,
+                denoised_fn=denoised_fn,
+                model_kwargs=model_kwargs
+            )
+            x0_hat = out["pred_xstart"]
+            x_mean = out["mean"]
+            sample = out["sample"]
+            
+        if t[0] > 0:
+            sample = self.dps_update(x=x, t=t, x0=x0_hat, x_old=sample)
+
+        return {
+            "sample": sample,
+            "pred_xstart": out["pred_xstart"], 
+            "mean": x_mean,
+            "x0_hat": x0_hat
+        }
     
     def p_sample_loop_progressive(
         self,
@@ -244,30 +260,33 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         if device is None:
             device = next(model.parameters()).device
         assert isinstance(shape, (tuple, list))
+        
         if noise is not None:
             img = noise
         else:
             img = th.randn(*shape, device=device)
+        img = img.requires_grad_(True)
+        
         indices = list(range(self.num_timesteps))[::-1]
-
+        
         if progress:
             from tqdm.auto import tqdm
             indices = tqdm(indices)
-
+        
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
-            with th.set_grad_enabled(True):
-                out = self.p_sample(
-                    model,
-                    img,
-                    t,
-                    clip_denoised=clip_denoised,
-                    denoised_fn=denoised_fn,
-                    cond_fn=cond_fn,
-                    model_kwargs=model_kwargs,
-                )
-                yield out
-                img = out["sample"]
+            img = img.requires_grad_(True)
+            out = self.p_sample(
+                model,
+                img,
+                t,
+                clip_denoised=clip_denoised,
+                denoised_fn=denoised_fn,
+                cond_fn=cond_fn,
+                model_kwargs=model_kwargs,
+            )
+            yield out
+            img = out["sample"].requires_grad_(True)
 
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):

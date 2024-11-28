@@ -13,8 +13,6 @@ import sys
 import numpy as np
 import torch as th
 import torch.distributed as dist
-from data.measurement_models import (RandomInpainting, 
-                                     BoxInpainting)
 from torchvision import (datasets, 
                          transforms)
 from guided_diffusion import dist_util, logger
@@ -75,9 +73,6 @@ def main():
                 low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
             )
             model_kwargs["y"] = classes
-        sample_fn = (
-            diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
-        )
         if args.dps_update:
             # =========================================== #
             # Perform the DPS sampling as in algorithm 1/2
@@ -106,9 +101,9 @@ def main():
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
                 measurement_model=measurement_model,
-                measurement=imgs[0],
+                measurement=imgs[0].to(dist_util.dev()),
                 noise_model=args.noise_model,
-                step_size=0.0,
+                step_size=2.0,
                 image_size=args.image_size,
                 learn_sigma=args.learn_sigma,
                 diffusion_steps=args.diffusion_steps,
@@ -144,6 +139,9 @@ def main():
             fig.savefig(meas_path)
 
         else:
+            sample_fn = (
+                diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
+            )
             sample = sample_fn(
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size),

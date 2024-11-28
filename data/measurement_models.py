@@ -31,11 +31,13 @@ class RandomInpainting(object):
         self.noise_model = noise_model
 
     def __call__(self, tensor):
-        _, n, d = tensor.shape
-        mask = torch.rand((n,d)) > 0.5
+        c, h, w = tensor.shape
+        device = tensor.device
+        mask = (torch.rand((1,h,w)) > 0.5).to(device)
+        mask = mask.repeat(c,1,1)
         x = tensor * mask
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size())*self.sigma**2
+            return x + torch.randn(size=x.size(), device=device)*self.sigma**2
         elif self.noise_model == "poisson":
             return torch.poisson(x) 
         else: 

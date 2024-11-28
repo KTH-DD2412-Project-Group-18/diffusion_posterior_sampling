@@ -350,7 +350,7 @@ class GaussianDiffusion:
                 pred_xstart = process_xstart(model_output)
             else:
                 
-                ## original DDPM - x0_hat
+                ## original DDPM - x0_hat pred_xstart = E[x_0|x_t]
                 pred_xstart = process_xstart(
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
@@ -481,10 +481,10 @@ class GaussianDiffusion:
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
-                img_with_grad = img.detach().clone().requires_grad_(True)
+                #img_with_grad = img.detach().clone().requires_grad_(True)
                 out = self.p_sample(
                     model,
-                    img_with_grad,
+                    img,
                     t,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
@@ -492,7 +492,7 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                 )
                 yield out
-            img = out["sample"].detach()
+            img = out["sample"]
 
     def p_sample(
         self,
