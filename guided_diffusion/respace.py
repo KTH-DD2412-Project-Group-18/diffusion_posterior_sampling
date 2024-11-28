@@ -1,5 +1,6 @@
 import numpy as np
 import torch as th
+from tqdm import tqdm
 from .gaussian_diffusion import (GaussianDiffusion, extract_into_tensor)
 
 def space_timesteps(num_timesteps, section_counts):
@@ -269,11 +270,11 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         indices = list(range(self.num_timesteps))[::-1]
         
-        if progress:
-            from tqdm.auto import tqdm
-            indices = tqdm(indices)
+        # if progress:
+        #     from tqdm.auto import tqdm
+        #     indices = tqdm(indices)
         
-        for i in indices:
+        for i in tqdm(range(len(indices))):
             t = th.tensor([i] * shape[0], device=device)
             img = img.requires_grad_(True)
             out = self.p_sample(
