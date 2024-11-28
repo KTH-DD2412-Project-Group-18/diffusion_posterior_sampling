@@ -168,6 +168,7 @@ cython_debug/
 # Ignore some data-specific stuff for images and modelss
 *.pt
 *.JPEG
+*.png
 datasets/*
 !datasets/README.md
 !datasets/*.py

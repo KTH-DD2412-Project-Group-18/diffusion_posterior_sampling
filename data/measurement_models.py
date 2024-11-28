@@ -4,6 +4,8 @@
 # ====================================================================== #
 import os
 import torch
+import matplotlib.pyplot as plt
+import numpy as np 
 import torch.nn.functional as F
 import argparse
 import yaml   
@@ -112,6 +114,69 @@ class LinearBlurring(object):
         pass
 
 
+class SuperResolution(object):
+
+    def __init__(self, downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05):
+        self.downscale_factor = downscale_factor
+        self.upscale_factor   = upscale_factor
+        if (noise_model != "gaussian") and (noise_model != "poisson"):
+            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
+            return ValueError 
+        self.noise_model = noise_model
+        self.sigma = sigma
+
+    def __call__(self, tensor):
+        # returns a downsampled image with added gaussian noise. I.e image from 256x256 -> 64x64 + gaussian noise
+        downsampled_image = self.bicubic_downsample(tensor)
+        noisy_downsample = self.add_gaussian_noise(downsampled_image, 64)
+        return noisy_downsample
+    
+    def denormalize(self, tensor):
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        return tensor * std + mean
+    
+    def bicubic_downsample(self, image):
+        # batch_size, channels, height, width = images.shape
+        image = image.unsqueeze(0)
+        downsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.downscale_factor, mode='bicubic', align_corners=True)
+        downsampled_image = downsampled_image.squeeze(0)
+        return downsampled_image
+    
+    def bicubic_upsample(self, image):
+        image = image.unsqueeze(0)
+        upsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.upscale_factor, mode='bicubic', align_corners=True)
+        upsampled_image = upsampled_image.squeeze(0)
+        return upsampled_image
+    
+    def add_gaussian_noise(self, image, image_size):
+        image += torch.randn((3, image_size, image_size)) * self.sigma
+        return image
+    
+
+    def upsample_with_noise(self, low_res_img):
+        _, h, w = low_res_img.shape  # tensor shape is [channels, height, width]
+        x_low_res = low_res_img
+        x_upscaled = torch.zeros((3, h*self.upscale_factor, w*self.upscale_factor))
+        # print("Shape of upscaled image tensor: ", x_upscaled.shape)
+        x_upscaled[:, ::self.upscale_factor, ::self.upscale_factor] = x_low_res
+        mask = (x_upscaled == 0).float()  # Shape: (1, 3, 256, 256)
+
+        if self.noise_model == "gaussian":
+            noise = torch.randn_like(x_upscaled)  # Standard Gaussian noise
+        elif self.noise_model == "poisson":
+             noise = torch.poisson(x_upscaled) 
+        else: 
+            return None
+        noise = torch.randn_like(x_upscaled)  # Standard Gaussian noise
+        noise_intensity = 0.1  # Adjust the noise intensity as needed
+        x_upscaled_with_noise = x_upscaled + noise * mask * noise_intensity
+
+        # Step 6: Clamp the result to ensure pixel values remain valid (e.g., [0, 1])
+        x_upscaled_with_noise = torch.clamp(x_upscaled_with_noise, 0, 255)
+
+        return x_upscaled_with_noise, mask
+
 class NonLinearBlurring(object):
     """
     Implements the non-linear blurring forward measurement model.
@@ -122,10 +187,6 @@ class NonLinearBlurring(object):
     """
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-            return ValueError 
-        self.noise_model = noise_model
 
     def generate_blur(self, tensor):
         # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py 
