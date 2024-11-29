@@ -88,7 +88,7 @@ def main():
                  sigma=args.sigma
             )
 
-            data = datasets.ImageFolder("./datasets/imagenet/val", 
+            data = datasets.ImageFolder("./datasets/imagenet/val2", 
                                             transform= transforms.Compose([
                                                 transforms.Resize((256, 256)),
                                                 transforms.ToTensor(),
@@ -108,7 +108,7 @@ def main():
                 measurement_model=measurement_model,
                 measurement=imgs[0].to(dist_util.dev()),
                 noise_model=args.noise_model,
-                step_size=100000,
+                step_size=1.,
                 image_size=args.image_size,
                 learn_sigma=args.learn_sigma,
                 diffusion_steps=args.diffusion_steps,
