@@ -4,13 +4,28 @@
 # ====================================================================== #
 import os
 import torch
-import matplotlib.pyplot as plt
-import numpy as np 
 import torch.nn.functional as F
-import argparse
 import yaml   
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
+
+class Identity(object):
+    "Implements the identity function as forward measurement model"
+    def __init__(self, noise_model="gaussian", sigma=.05):
+        if (noise_model != "gaussian") and (noise_model != "poisson"):
+            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
+            return ValueError 
+        self.noise_model = noise_model
+        self.sigma = sigma
+
+    def __call__(self, tensor):
+        if self.noise_model == "gaussian":
+            return tensor + torch.randn_like(tensor)*self.sigma
+        elif self.noise_model == "poisson":
+            return torch.poisson(tensor)
+        else: 
+            return tensor
+    
 
 class RandomInpainting(object):
     """ 
@@ -25,7 +40,7 @@ class RandomInpainting(object):
     - sigma: float = variance of Gaussian noise
     - noise_model: str = which model to implement "gaussian" | "poisson"
     """
-    def __init__(self, noise_model="gaussian", sigma=1.):
+    def __init__(self, noise_model="gaussian", sigma=.05):
         self.sigma = sigma
         if (noise_model != "gaussian") and (noise_model != "poisson"):
             print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
@@ -39,7 +54,7 @@ class RandomInpainting(object):
         mask = mask.repeat(c,1,1)
         x = tensor * mask
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size(), device=device)*self.sigma**2
+            return x + torch.randn(size=x.size(), device=device)*self.sigma
         elif self.noise_model == "poisson":
             return torch.poisson(x) 
         else: 
@@ -86,7 +101,7 @@ class BoxInpainting(object):
         x1, x2, box_h, box_w = self.box(x)
         
         if self.noise_model == "gaussian":
-            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma**2
+            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma
             return x
         elif self.noise_model == "poisson":
             x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.poisson(x[:, x1:x1 + box_h, x2:x2 + box_w])
@@ -212,7 +227,7 @@ class GaussianBlur(object):
     The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
     the measurement. 
     """
-    def __init__(self, kernel_size, sigma):
+    def __init__(self, kernel_size=(61,61), sigma=.05):
         self.kernel_size = kernel_size
         self.sigma = sigma
 

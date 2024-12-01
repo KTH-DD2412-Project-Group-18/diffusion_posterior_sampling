@@ -8,6 +8,7 @@ import enum
 import math
 import numpy as np
 import torch as th
+from tqdm import tqdm
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -61,9 +62,9 @@ class ModelMeanType(enum.Enum):
     Which type of output the model predicts.
     """
 
-    PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
-    START_X = enum.auto()  # the model predicts x_0
-    EPSILON = enum.auto()  # the model predicts epsilon
+    PREVIOUS_X = enum.auto()    # the model predicts x_{t-1}
+    START_X = enum.auto()       # the model predicts x_0
+    EPSILON = enum.auto()       # the model predicts epsilon
 
 
 class ModelVarType(enum.Enum):
@@ -407,7 +408,6 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         device=None,
-        progress=False,
     ):
         """
         Generate samples from the model.
@@ -438,7 +438,6 @@ class GaussianDiffusion:
             cond_fn=cond_fn,
             model_kwargs=model_kwargs,
             device=device,
-            progress=progress,
         ):
             final = sample
         return final["sample"]
@@ -453,7 +452,6 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         device=None,
-        progress=False,
     ):
         """
         Generate samples from the model and yield intermediate samples from
@@ -472,16 +470,9 @@ class GaussianDiffusion:
             img = th.randn(*shape, device=device)
         indices = list(range(self.num_timesteps))[::-1]
 
-        if progress:
-            # Lazy import so that we don't depend on tqdm.
-            from tqdm.auto import tqdm
-
-            indices = tqdm(indices)
-
-        for i in indices:
+        for i in tqdm(indices, desc="Sampling", leave=False):
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
-                #img_with_grad = img.detach().clone().requires_grad_(True)
                 out = self.p_sample(
                     model,
                     img,

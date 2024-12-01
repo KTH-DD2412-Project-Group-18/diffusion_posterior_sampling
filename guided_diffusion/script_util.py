@@ -2,12 +2,14 @@ import argparse
 
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps, DiffusionPosteriorSampling
-from data.measurement_models import (RandomInpainting, 
-                                     BoxInpainting,
-                                     SuperResolution,
-                                     NonLinearBlurring,
-                                     GaussianBlur,
-                                     MotionBlur)
+from data.measurement_models import (
+    Identity,
+    RandomInpainting, 
+    BoxInpainting,
+    SuperResolution,
+    NonLinearBlurring,
+    GaussianBlur,
+    MotionBlur)
 from .unet import UNetModel
 NUM_CLASSES = 1000
 
@@ -260,14 +262,11 @@ def create_gaussian_diffusion(
         rescale_timesteps=rescale_timesteps,
     )
 
-
-def dps_sampling(sample_fn, model, measurement_model):
-    pass
-
 def get_measurement_model(name, noise_model, sigma):
     """Import measurement model class from data.measurement_models"""
 
     available_models = {
+        "Identity": Identity,
         "BoxInpainting": BoxInpainting,
         "RandomInpainting": RandomInpainting,
         "SuperResolution": SuperResolution,
@@ -278,8 +277,10 @@ def get_measurement_model(name, noise_model, sigma):
     if name not in available_models:
         print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")
         return ValueError
-    else:
+    else:        
         model = available_models[name]
+        if (name == "GaussianBlur") or (name == "MotionBlur"):
+            return model()
         return model(noise_model=noise_model,sigma=sigma) if (noise_model == "gaussian") else model(noise_model=noise_model)
 
 def args_to_dict(args, keys):

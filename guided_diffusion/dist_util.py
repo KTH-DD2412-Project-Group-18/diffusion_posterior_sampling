@@ -53,12 +53,9 @@ def dev():
     Get the device to use for torch.distributed.
     """
     if th.backends.mps.is_available():
-        print("Using mps")
         return th.device("mps")
     elif th.cuda.is_available():
-        print("Using CUDA")
         return th.device("cuda")
-    print("Using CPU")
     return th.device("cpu")
 
 def safe_all_gather(tensor_list, tensor):
@@ -102,7 +99,7 @@ def load_state_dict(path, **kwargs):
     kwargs['map_location'] = custom_load
 
     try:
-        state_dict = th.load(io.BytesIO(data), **kwargs)
+        state_dict = th.load(io.BytesIO(data), weights_only=False, **kwargs)
         return state_dict
     except Exception as e:
         print(f"Loading with custom_load failed: {e}")

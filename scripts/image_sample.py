@@ -8,20 +8,15 @@ Modified by Dan Vicente in November 2024
 import os
 from datetime import datetime
 import argparse
-import os
-import sys
 import numpy as np
 import torch as th
 import torch.distributed as dist
 from torchvision.transforms import ToPILImage
 
-from data.measurement_models import (RandomInpainting, 
-                                     BoxInpainting)
 from torchvision import (datasets, 
                          transforms)
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
-    NUM_CLASSES,
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     add_dict_to_argparser,
@@ -31,18 +26,7 @@ from guided_diffusion.script_util import (
 )
 from PIL import Image
 import matplotlib.pyplot as plt
-from guided_diffusion.respace import DiffusionPosteriorSampling
 
-
-# Set CPU/GPU thread limits for paralleelization
-# os.environ["OMP_NUM_THREADS"] = "2"  # OpenMP threads
-# os.environ["MKL_NUM_THREADS"] = "2"  # MKL threads
-# os.environ["NUMEXPR_NUM_THREADS"] = "2"  # NumExpr threads
-# os.environ["VECLIB_MAXIMUM_THREADS"] = "2"  # Vector library threads (specific to Mac)
-##  for images:
-##  --meas_model "super-resolution", "inpainting", "linear-deblurring", "nonlinear-deblurring", "phase-retrieval"
-## for audio: ??
-##
 
 def denormalize(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -51,7 +35,7 @@ def denormalize(tensor):
 
 def main():
     args = create_argparser().parse_args()
-    rank = 0
+    rank = 0 # or rank = dist.get_rank()
 
     # dist_util.setup_dist()
     logger.configure()
@@ -61,23 +45,22 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
-    model.to(dist_util.dev())
+    dev = dist_util.dev()
+    print(f"Using device = '{dev}'")
+
+    model.to(dev)
     model.eval()
 
-    logger.log("sampling...")
     t_start = datetime.now()
     all_images = []
     all_labels = []
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
-        if args.class_cond:
-            classes = th.randint(
-                low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
-            )
-            model_kwargs["y"] = classes
+        
         if args.dps_update:
             # =========================================== #
             # Perform the DPS sampling as in algorithm 1/2
@@ -87,13 +70,13 @@ def main():
                  noise_model=args.noise_model,
                  sigma=args.sigma
             )
-
+            
             data = datasets.ImageFolder("./datasets/imagenet/val2", 
                                             transform= transforms.Compose([
                                                 transforms.Resize((256, 256)),
                                                 transforms.ToTensor(),
                                                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                                                measurement_model
+                                                measurement_model,
                       ])
                       )
             dataloader = th.utils.data.DataLoader(
@@ -106,9 +89,9 @@ def main():
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
                 measurement_model=measurement_model,
-                measurement=imgs[0].to(dist_util.dev()),
+                measurement=imgs[0].to(dev),
                 noise_model=args.noise_model,
-                step_size=1.,
+                step_size=1e5,
                 image_size=args.image_size,
                 learn_sigma=args.learn_sigma,
                 diffusion_steps=args.diffusion_steps,
@@ -119,7 +102,6 @@ def main():
                 rescale_timesteps=args.rescale_timesteps,
                 rescale_learned_sigmas=args.rescale_learned_sigmas
             )
-            
             sample_fn = (
                 dps_diffusion.p_sample_loop if not args.use_ddim else dps_diffusion.ddim_sample_loop
             )
@@ -136,12 +118,8 @@ def main():
             img = denormalize(imgs[0])
             img = img.permute(1,2,0).numpy()
             img = np.clip(img, 0, 1)
-            
-            fig, ax = plt.subplots()
-            ax.imshow(img)
-            plt.axis("off")
             meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
-            fig.savefig(meas_path)
+            plt.imsave(meas_path, img)
 
         else:
             sample_fn = (
@@ -166,16 +144,6 @@ def main():
         else:
             all_images.append(sample.cpu().numpy())
 
-        if args.class_cond:
-            # 
-            # if dist.get_world_size() > 1:
-            if rank > 1:
-                gathered_labels = [th.zeros_like(classes) for _ in range(2)]
-                dist_util.safe_all_gather(gathered_labels, classes)
-                all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
-            else:
-                all_labels.append(classes.cpu().numpy())
-
         logger.log(f"created {len(all_images) * args.batch_size} samples")
 
     arr = np.concatenate(all_images, axis=0)
@@ -186,18 +154,11 @@ def main():
     print(f"Range: [{arr.min()}, {arr.max()}]")
     print(f"Mean: {arr.mean():.3f}")
     
-    if args.class_cond:
-        label_arr = np.concatenate(all_labels, axis=0)
-        label_arr = label_arr[: args.num_samples]
-    # if dist.get_rank() == 0: ###
     if rank == 0:
         shape_str = "x".join([str(x) for x in arr.shape])
         out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
         logger.log(f"saving to {out_path}")
-        if args.class_cond:
-            np.savez(out_path, arr, label_arr)
-        else:
-            np.savez(out_path, arr)
+        np.savez(out_path, arr)
         try:
             if arr.shape[0] > 0:
                 img = Image.fromarray(arr[0])
@@ -210,6 +171,7 @@ def main():
     to_pil = ToPILImage()
     image = to_pil(arr[0])
     image.save("tmp_latest_sample.png")  
+
     # dist.barrier()
     logger.log("sampling complete")
     t_end = datetime.now()
@@ -226,7 +188,7 @@ def create_argparser():
         dps_update=True,
         measurement_model="BoxInpainting",
         noise_model="gaussian",
-        sigma=1.0,
+        sigma=.05,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

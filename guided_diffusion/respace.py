@@ -1,7 +1,6 @@
 import numpy as np
 import torch as th
-from tqdm import tqdm
-from .gaussian_diffusion import (GaussianDiffusion, extract_into_tensor)
+from .gaussian_diffusion import (GaussianDiffusion, )
 
 def space_timesteps(num_timesteps, section_counts):
     """
@@ -158,40 +157,39 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             print("only 'gaussian' and 'poisson' noise models!")
             return NotImplementedError
     
-    def dps_update(self,
+    def dps_update(self, 
                    x: th.Tensor, 
-                   t: int,
+                   t: int, 
                    x0: th.Tensor, 
-                   x_old: th.Tensor,
-    ) -> th.Tensor: 
-        """ Compute the gradient and posterior sample using equation 16"""
-        assert x.requires_grad, "x needs to have gradients enabled!"
-        
-        if x.grad is not None:
-            x.grad.zero_()
-
-        # # TODO: How do we handle the batch-dimension efficiently?
-        if len(x0.shape) == 4:
-            x0 = x0[0]
+                   x_old: th.Tensor
+    ) -> th.Tensor:
         
         with th.enable_grad():
             eps = self._predict_eps_from_xstart(x, t, x0)
             x0 = self._predict_xstart_from_eps(x, t, eps)
-        
             x0 = x0[0] if len(x0.shape) == 4 else x0
-
+            
+            # Trying to scale A(x0) to be on the same scale as measurement
             y_meas = self.measurement_model(x0)
-
+            y_min, y_max = y_meas.min(), y_meas.max()
+            meas_min, meas_max = self.measurement.min(), self.measurement.max()
+            y_meas = (y_meas - y_min) * (meas_max - meas_min) / (y_max - y_min) + meas_min
+            
             loss = self.measurement_loss(y_meas, self.measurement)
+            print(f"Loss value: {loss.item()}")
             loss.backward()
             grad = x.grad
-
-            #grad = th.autograd.grad(loss, x)[0]
-
+            print(f"Gradient stats - min: {grad.min()}, max: {grad.max()}, mean: {grad.mean()}")
+        
         with th.no_grad():
             zeta_i = (self.step_size / np.sqrt(loss.item()))
+            print(f"zeta_i = {zeta_i} at t={t[0]}")
             x_new = x_old - zeta_i * grad
-
+            print(f"Update magnitude: {(x_new - x_old).abs().mean()}")
+        
+        print(f"x0 range: [{x0.min()}, {x0.max()}]")
+        print(f"y_meas range: [{y_meas.min()}, {y_meas.max()}]")
+        print(f"measurement range: [{self.measurement.min()}, {self.measurement.max()}]")
         return x_new
     
     def p_sample(
@@ -221,7 +219,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
                  - 'sample': a random sample from the model.
                  - 'pred_xstart': a prediction of x_0.
         """
-
+    
         with th.no_grad():
             out = super().p_sample(
                 model,
@@ -234,61 +232,16 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             x0_hat = out["pred_xstart"]
             x_mean = out["mean"]
             sample = out["sample"]
-            
-        if t[0] > 0:
-            sample = self.dps_update(x=x, t=t, x0=x0_hat, x_old=sample)
+        
+        x = x.detach().requires_grad_(True)
+        dps_sample = self.dps_update(x=x, t=t, x0=x0_hat, x_old=sample)
 
         return {
-            "sample": sample,
-            "pred_xstart": out["pred_xstart"], 
-            "mean": x_mean,
-            "x0_hat": x0_hat
+            "sample": dps_sample,
+            "pred_xstart": x0_hat, 
+            "mean": x_mean
         }
     
-    def p_sample_loop_progressive(
-        self,
-        model,
-        shape,
-        noise=None,
-        clip_denoised=True,
-        denoised_fn=None,
-        cond_fn=None,
-        model_kwargs=None,
-        device=None,
-        progress=False,
-    ):
-        """Generate samples from the model and yield intermediate samples."""
-        if device is None:
-            device = next(model.parameters()).device
-        assert isinstance(shape, (tuple, list))
-        
-        if noise is not None:
-            img = noise
-        else:
-            img = th.randn(*shape, device=device)
-        img = img.requires_grad_(True)
-        
-        indices = list(range(self.num_timesteps))[::-1]
-        
-        # if progress:
-        #     from tqdm.auto import tqdm
-        #     indices = tqdm(indices)
-        
-        for i in tqdm(range(len(indices))):
-            t = th.tensor([i] * shape[0], device=device)
-            img = img.requires_grad_(True)
-            out = self.p_sample(
-                model,
-                img,
-                t,
-                clip_denoised=clip_denoised,
-                denoised_fn=denoised_fn,
-                cond_fn=cond_fn,
-                model_kwargs=model_kwargs,
-            )
-            yield out
-            img = out["sample"].requires_grad_(True)
-
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
         self.model = model
