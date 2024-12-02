@@ -57,7 +57,6 @@ def main():
 
     t_start = datetime.now()
     all_images = []
-    all_labels = []
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         
@@ -91,7 +90,7 @@ def main():
                 measurement_model=measurement_model,
                 measurement=imgs[0].to(dev),
                 noise_model=args.noise_model,
-                step_size=1e5,
+                step_size=args.step_size,
                 image_size=args.image_size,
                 learn_sigma=args.learn_sigma,
                 diffusion_steps=args.diffusion_steps,
@@ -105,6 +104,7 @@ def main():
             sample_fn = (
                 dps_diffusion.p_sample_loop if not args.use_ddim else dps_diffusion.ddim_sample_loop
             )
+            logger.log(f"created DPS-diffusion model with step_size = {args.step_size}..")
 
             # denoise sampling using first image in batch (should be the same every time if we have shuffle=False)
             sample = sample_fn(
@@ -189,6 +189,7 @@ def create_argparser():
         measurement_model="BoxInpainting",
         noise_model="gaussian",
         sigma=.05,
+        step_size=1.
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

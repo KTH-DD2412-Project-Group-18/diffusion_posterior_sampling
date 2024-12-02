@@ -451,7 +451,7 @@ class GaussianDiffusion:
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,
-        device=None,
+        device=None
     ):
         """
         Generate samples from the model and yield intermediate samples from
