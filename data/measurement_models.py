@@ -42,24 +42,33 @@ class RandomInpainting(object):
     """
     def __init__(self, noise_model="gaussian", sigma=.05):
         self.sigma = sigma
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-            return ValueError 
+        if noise_model not in ["gaussian", "poisson"]:
+            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
         self.noise_model = noise_model
-
-    def __call__(self, tensor):
-        c, h, w = tensor.shape
-        device = tensor.device
-        mask = (torch.rand((1,h,w)) > 0.5).to(device)
-        mask = mask.repeat(c,1,1)
-        x = tensor * mask
-        if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size(), device=device)*self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(x) 
-        else: 
-            return None
         
+    def __call__(self, tensor):
+        device = tensor.device
+        
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+            
+        b, c, h, w = tensor.shape
+        
+        # Generate mask on the correct device
+        mask = (torch.rand((b, 1, h, w), device=device) > 0.5)
+        mask = mask.expand(-1, c, -1, -1)
+        
+        if self.noise_model == "gaussian":
+            noise = torch.randn(tensor.shape, device=device) * self.sigma
+            result = tensor * mask + noise
+        else:
+            masked = tensor * mask
+            result = torch.poisson(masked)
+            
+        # Return with original dimensions
+        return result.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else result
+            
     def __repr__(self):
         return self.__class__.__name__ + f"(mean={0}, std={1})"
 

@@ -1,6 +1,15 @@
 import numpy as np
 import torch as th
 from .gaussian_diffusion import (GaussianDiffusion, )
+from tqdm import tqdm
+from matplotlib import pyplot as plt
+import time
+from torchvision.transforms import ToPILImage
+
+def denormalize_imagenet(tensor):
+                mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
+                std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(tensor.device)
+                return tensor * std + mean
 
 def space_timesteps(num_timesteps, section_counts):
     """
@@ -156,91 +165,166 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         else:
             print("only 'gaussian' and 'poisson' noise models!")
             return NotImplementedError
-    
+
     def dps_update(self, 
                    x: th.Tensor, 
                    t: int, 
                    x0: th.Tensor, 
                    x_old: th.Tensor
     ) -> th.Tensor:
+        """
+        Computes the DPS-sampling step, a gradient update at
+        We recompute eps and E[x0|x] to be able to track gradients
+        Also, we detach the computational graph from the previous iteration since its not needed in backprorp
+        """
+        measurement = self.measurement
+        if len(measurement.shape) != 4:
+            measurement = measurement.unsqueeze(0)
         
-        with th.enable_grad():
-            eps = self._predict_eps_from_xstart(x, t, x0)
-            x0 = self._predict_xstart_from_eps(x, t, eps)
-            x0 = x0[0] if len(x0.shape) == 4 else x0
-            
-            # Trying to scale A(x0) to be on the same scale as measurement
-            y_meas = self.measurement_model(x0)
-            y_min, y_max = y_meas.min(), y_meas.max()
-            meas_min, meas_max = self.measurement.min(), self.measurement.max()
-            y_meas = (y_meas - y_min) * (meas_max - meas_min) / (y_max - y_min) + meas_min
-            
-            loss = self.measurement_loss(y_meas, self.measurement)
-            print(f"Loss value: {loss.item()}")
-            loss.backward()
-            grad = x.grad
-            print(f"Gradient stats - min: {grad.min()}, max: {grad.max()}, mean: {grad.mean()}")
+        # == Compute recon-loss == #
+        with th.set_grad_enabled(True):
+            y_pred = self.measurement_model(x0)
+            if len(y_pred.shape) != 4:
+                y_pred = y_pred.unsqueeze(0)    
+            loss = self.measurement_loss(y_pred, measurement)
+            grad = th.autograd.grad(loss, x)[0]
         
+        # === step 7 === #
         with th.no_grad():
-            zeta_i = (self.step_size / np.sqrt(loss.item()))
-            print(f"zeta_i = {zeta_i} at t={t[0]}")
+            zeta_i = self.step_size / th.sqrt(loss).item() if loss.item() > 0 else self.step_size
             x_new = x_old - zeta_i * grad
-            print(f"Update magnitude: {(x_new - x_old).abs().mean()}")
         
-        print(f"x0 range: [{x0.min()}, {x0.max()}]")
-        print(f"y_meas range: [{y_meas.min()}, {y_meas.max()}]")
-        print(f"measurement range: [{self.measurement.min()}, {self.measurement.max()}]")
-        return x_new
+        # == prints for evaluating progress == #
+        print(f"loss = {loss.item()}")
+        print(f"zeta_i = {zeta_i}")
+        print(f"update magnitude = {th.norm(x_old - x_new)}")
+
+        return x_new.detach()
     
     def p_sample(
-        self,
-        model,  
-        x,
-        t,
-        clip_denoised=True,
-        denoised_fn=None,
-        cond_fn=None,
-        model_kwargs=None,
-    ):
-        """
-        Sample x_{t-1} from the model at the given timestep.
+            self, 
+            model, 
+            x, 
+            t
+    ) -> dict[str, th.Tensor]:
+        """Override GaussianDiffusion p_sample with added DPS update step"""
+        x_t = x.requires_grad_(True)
 
-        :param model: the model to sample from.
-        :param x: the current tensor at x_{t-1}.
-        :param t: the value of t, starting at 0 for the first diffusion step.
-        :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
+        # === step 3 & 4 === #
+        with th.set_grad_enabled(True):
+            # Here we generate the following values
+            # - out["pred_xstart"] = E[x0|xt]
+            # - out["mean"] = \hat mu_t 
+            # - out["log_variance"] = log(sigma_t)
+            # we use the latter two to generate the ancestral sample
+            # and the first one is what we use in differentiation
+            out = self.p_mean_variance(
+                model,
+                x_t,
+                t
+            )
+        # === step 5 === #
+        noise = th.randn_like(x_t).requires_grad_(False)
+
+        # === step 6 === #
+        nonzero_mask = (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
+        x0_hat = out["pred_xstart"]
+
+        # DPS update step
+        with th.set_grad_enabled(True):
+            dps_sample = self.dps_update(
+                x=x_t, 
+                t=t,
+                x0=x0_hat,
+                x_old=sample  
+            )
+
+        return {
+            "sample": dps_sample,
+            "pred_xstart": x0_hat, 
+            "mean": out["mean"]
+        }
+    
+    def p_sample_loop_progressive(
+        self,
+        model,
+        shape,
+        device=None
+    ):
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
+        
+        # need to enable gradients from t = T to t = 1
+        x_t = th.randn(*shape, device=device).requires_grad_(True) 
+            
+        indices = list(range(self.num_timesteps))[::-1]
+        intermediate_indices = list(np.floor(np.linspace(min(indices), max(indices), len(indices)//4)).astype(int))
+
+        for i in tqdm(indices, desc="Sampling", leave=False):
+            t = th.tensor([i] * shape[0], device=device).requires_grad_(False)
+            # we free the tensor from the computation graph
+            # (each iteration we compute gradient only w.r.t curr sample)
+            x_t = x_t.detach()
+            
+            # Also clear GPU cache (in case there is old garbage)
+            if device.type == 'mps':
+                th.mps.empty_cache()
+            if device.type == "cuda":
+                th.cuda.empty_cache()
+            
+            with th.set_grad_enabled(True):
+                out = self.p_sample(
+                    model,
+                    x=x_t,
+                    t=t,
+                )
+                yield out
+            x_t = out["sample"]
+
+            if i in intermediate_indices:
+                # save some intermediate images 
+                img = denormalize_imagenet(out["sample"]).cpu()
+                img = img[0] if len(img.shape) == 4 else img
+                curr_time = time.time()
+                to_pil = ToPILImage()
+                image = to_pil(img)
+                image.save(f"./intermediate_samples/sample_{i}_{curr_time}.png")
+
+    def p_sample_loop(
+        self,
+        model,
+        shape,
+        device=None
+    ) -> th.Tensor:
+        """
+        Generate samples from the model.
+
+        :param model: the model module.
+        :param shape: the shape of the samples, (N, C, H, W).
+        :param noise: if specified, the noise from the encoder to sample.
+                      Should be of the same shape as `shape`.
+        :param clip_denoised: if True, clip x_start predictions to [-1, 1].
         :param denoised_fn: if not None, a function which applies to the
             x_start prediction before it is used to sample.
         :param cond_fn: if not None, this is a gradient function that acts
                         similarly to the model.
         :param model_kwargs: if not None, a dict of extra keyword arguments to
             pass to the model. This can be used for conditioning.
-        :return: a dict containing the following keys:
-                 - 'sample': a random sample from the model.
-                 - 'pred_xstart': a prediction of x_0.
+        :param device: if specified, the device to create the samples on.
+                       If not specified, use a model parameter's device.
+        :param progress: if True, show a tqdm progress bar.
+        :return: a non-differentiable batch of samples.
         """
-    
-        with th.no_grad():
-            out = super().p_sample(
-                model,
-                x,
-                t,
-                clip_denoised=clip_denoised,
-                denoised_fn=denoised_fn,
-                model_kwargs=model_kwargs
-            )
-            x0_hat = out["pred_xstart"]
-            x_mean = out["mean"]
-            sample = out["sample"]
-        
-        x = x.detach().requires_grad_(True)
-        dps_sample = self.dps_update(x=x, t=t, x0=x0_hat, x_old=sample)
-
-        return {
-            "sample": dps_sample,
-            "pred_xstart": x0_hat, 
-            "mean": x_mean
-        }
+        final = None
+        for sample in self.p_sample_loop_progressive(
+            model,
+            shape,
+            device=device
+        ):
+            final = sample
+        return final["sample"]
     
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):

@@ -11,8 +11,8 @@ from data.measurement_models import (
     GaussianBlur,
     MotionBlur)
 from .unet import UNetModel
+import torch as th
 NUM_CLASSES = 1000
-
 
 def diffusion_defaults():
     """
@@ -197,6 +197,16 @@ def create_dps_diffusion(
 
     if not timestep_respacing:
         timestep_respacing = [diffusion_steps]
+
+    if len(measurement.shape) == 3:  # If it doesn't have batch dimension
+        measurement = measurement.unsqueeze(0)  # Add batch dimension
+    
+    if th.backends.mps.is_available():
+        measurement = measurement.detach().to("mps")
+    elif th.backends.cuda.is_available():
+        measurement = measurement.detach().to("cuda")
+    else:
+        measurement = measurement.detach()
 
     return DiffusionPosteriorSampling(
         use_timesteps=space_timesteps(diffusion_steps, timestep_respacing),

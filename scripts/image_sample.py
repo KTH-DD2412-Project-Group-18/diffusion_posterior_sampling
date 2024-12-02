@@ -2,7 +2,6 @@
 Generate a large batch of image samples from a model and save them as a large
 numpy array. This can be used to produce samples for FID evaluation.
 Source: openAI
-Modified by Dan Vicente in November 2024
 """
 
 import os
@@ -27,8 +26,7 @@ from guided_diffusion.script_util import (
 from PIL import Image
 import matplotlib.pyplot as plt
 
-
-def denormalize(tensor):
+def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
                 std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
                 return tensor * std + mean
@@ -75,6 +73,7 @@ def main():
                                                 transforms.Resize((256, 256)),
                                                 transforms.ToTensor(),
                                                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                                                #transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
                                                 measurement_model,
                       ])
                       )
@@ -84,11 +83,13 @@ def main():
                 shuffle=False
             )
             imgs, _ = next(iter(dataloader))
-
+            
+            img = imgs[-1].requires_grad_(False) # no need for gradients of y
+            
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
                 measurement_model=measurement_model,
-                measurement=imgs[0].to(dev),
+                measurement=img.to(dev),
                 noise_model=args.noise_model,
                 step_size=args.step_size,
                 image_size=args.image_size,
@@ -101,21 +102,17 @@ def main():
                 rescale_timesteps=args.rescale_timesteps,
                 rescale_learned_sigmas=args.rescale_learned_sigmas
             )
-            sample_fn = (
-                dps_diffusion.p_sample_loop if not args.use_ddim else dps_diffusion.ddim_sample_loop
-            )
+            sample_fn = dps_diffusion.p_sample_loop
             logger.log(f"created DPS-diffusion model with step_size = {args.step_size}..")
 
             # denoise sampling using first image in batch (should be the same every time if we have shuffle=False)
             sample = sample_fn(
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size),
-                clip_denoised=args.clip_denoised,
-                model_kwargs=model_kwargs
             )
             
             # Also save image for reference
-            img = denormalize(imgs[0])
+            img = denormalize_imagenet(imgs[0])
             img = img.permute(1,2,0).numpy()
             img = np.clip(img, 0, 1)
             meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
@@ -127,9 +124,7 @@ def main():
             )
             sample = sample_fn(
                 model,
-                (args.batch_size, 3, args.image_size, args.image_size),
-                clip_denoised=args.clip_denoised,
-                model_kwargs=model_kwargs,
+                (args.batch_size, 3, args.image_size, args.image_size)
             )
 
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
@@ -167,10 +162,6 @@ def main():
                 logger.log(f"Saved sample image to {img_path}")
         except Exception as e:
             logger.log(f"Failed to save sample image: {e}")
-            
-    to_pil = ToPILImage()
-    image = to_pil(arr[0])
-    image.save("tmp_latest_sample.png")  
 
     # dist.barrier()
     logger.log("sampling complete")

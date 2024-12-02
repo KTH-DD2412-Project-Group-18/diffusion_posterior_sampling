@@ -9,6 +9,12 @@ import math
 import numpy as np
 import torch as th
 from tqdm import tqdm
+from torchvision.transforms import ToPILImage
+import time
+def denormalize_imagenet(tensor):
+                mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
+                std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(tensor.device)
+                return tensor * std + mean
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -175,7 +181,7 @@ class GaussianDiffusion:
         return (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
             - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * eps
-        )
+        ).requires_grad_(True)
     
     def _predict_xstart_mean_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape
@@ -356,7 +362,7 @@ class GaussianDiffusion:
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
 
-                # x0_hat from DPS
+                # x0_hat from DPS (we do not use that - might be an error in paper)
                 x0_hat = process_xstart(
                     self._predict_xstart_mean_from_eps(x_t=x,t=t,eps=model_output)
                 )
@@ -469,7 +475,7 @@ class GaussianDiffusion:
         else:
             img = th.randn(*shape, device=device)
         indices = list(range(self.num_timesteps))[::-1]
-
+        intermediate_indices = list(np.floor(np.linspace(min(indices), max(indices), len(indices)//3)).astype(int))
         for i in tqdm(indices, desc="Sampling", leave=False):
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
@@ -483,6 +489,15 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                 )
                 yield out
+            
+            if i in intermediate_indices:
+                # save some intermediate images 
+                img = denormalize_imagenet(out["sample"]).cpu()
+                img = img[0] if len(img.shape) == 4 else img
+                curr_time = time.time()
+                to_pil = ToPILImage()
+                image = to_pil(img)
+                image.save(f"./intermediate_samples/sample_{i}_{curr_time}.png")
             img = out["sample"]
 
     def p_sample(
@@ -526,11 +541,7 @@ class GaussianDiffusion:
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
-        if cond_fn is not None:
-            out["mean"] = self.condition_mean(
-                cond_fn, out, x, t, model_kwargs=model_kwargs
-            )
-        
+
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
         return {"sample": sample, 
                 "pred_xstart": out["pred_xstart"],
