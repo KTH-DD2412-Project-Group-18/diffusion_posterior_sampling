@@ -869,6 +869,24 @@ files = [
 ]
 
 [[package]]
+name = "lpips"
+version = "0.1.4"
+description = "LPIPS Similarity metric"
+optional = false
+python-versions = "*"
+files = [
+    {file = "lpips-0.1.4-py3-none-any.whl", hash = "sha256:fd537af5828b69d2e6ffc0a397bd506dbc28ca183543617690844c08e102ec5e"},
+    {file = "lpips-0.1.4.tar.gz", hash = "sha256:3846331df6c69688aec3d300a5eeef6c529435bc8460bd58201c3d62e56188fa"},
+]
+
+[package.dependencies]
+numpy = ">=1.14.3"
+scipy = ">=1.0.1"
+torch = ">=0.4.0"
+torchvision = ">=0.2.1"
+tqdm = ">=4.28.1"
+
+[[package]]
 name = "lxml"
 version = "5.3.0"
 description = "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API."
@@ -2607,4 +2625,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "d4459b3fde6632b3b6abc2871da1e40166687e435437ede9b174bb5fad87f2c7"
+content-hash = "54574d5fd6bd2388e8a84eab8e6b96dfe8b0221070d0fa4c8bcfb64dbed51c1c"
