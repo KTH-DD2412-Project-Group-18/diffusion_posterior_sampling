@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import yaml   
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
+from guided_diffusion import dist_util
 
 class Identity(object):
     "Implements the identity function as forward measurement model"
@@ -132,9 +133,21 @@ class SuperResolution(object):
 
     def __call__(self, tensor):
         # returns a downsampled image with added gaussian noise. I.e image from 256x256 -> 64x64 + gaussian noise
-        downsampled_image = self.bicubic_downsample(tensor)
-        noisy_downsample = self.add_gaussian_noise(downsampled_image, 64)
-        return noisy_downsample
+        if tensor.get_device() == 0 and dist_util.dev() == torch.device("mps"):
+            tensor = tensor.to("cpu")
+            downsampled_image = self.bicubic_downsample(tensor)
+            noisy_downsample  = self.add_gaussian_noise(downsampled_image, 64)
+            upsampled_image   = self.bicubic_upsample(noisy_downsample)
+
+            upsampled_image = upsampled_image.to("mps")
+        
+        else: 
+            downsampled_image = self.bicubic_downsample(tensor)
+            noisy_downsample = self.add_gaussian_noise(downsampled_image, 64)
+            upsampled_image   = self.bicubic_upsample(noisy_downsample)
+
+        # print("noisy_downsample from call before return: ", noisy_downsample.get_device())
+        return upsampled_image
     
     def denormalize(self, tensor):
         mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -143,9 +156,11 @@ class SuperResolution(object):
     
     def bicubic_downsample(self, image):
         # batch_size, channels, height, width = images.shape
-        image = image.unsqueeze(0)
-        downsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.downscale_factor, mode='bicubic', align_corners=True)
+        if len(image.shape) == 3:
+            image = image.unsqueeze(0)
+        downsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.downscale_factor, mode='bicubic', align_corners=True)            
         downsampled_image = downsampled_image.squeeze(0)
+        # print("image shape: ", downsampled_image.shape)
         return downsampled_image
     
     def bicubic_upsample(self, image):
