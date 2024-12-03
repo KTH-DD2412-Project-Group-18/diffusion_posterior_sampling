@@ -285,11 +285,12 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
 
             if i in intermediate_indices:
                 # save some intermediate images 
-                img = denormalize_imagenet(out["sample"]).cpu()
+                img = out["sample"]
+                #img = denormalize_imagenet(img)
                 img = img[0] if len(img.shape) == 4 else img
                 curr_time = time.time()
                 to_pil = ToPILImage()
-                image = to_pil(img)
+                image = to_pil(img.cpu())
                 image.save(f"./intermediate_samples/sample_{i}_{curr_time}.png")
 
     def p_sample_loop(

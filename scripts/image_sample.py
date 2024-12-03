@@ -85,11 +85,12 @@ def main():
             img = imgs[-1].requires_grad_(False) # no need for gradients of y
             
             # Save image for reference
-            img = denormalize_imagenet(img)
-            img = img.permute(1,2,0).numpy()
-            img = np.clip(img, 0, 1)
+            img_ = denormalize_imagenet(img)
+            img_ = img_.permute(1,2,0).numpy()
+            img_ = np.clip(img_, 0, 1)
             meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
-            plt.imsave(meas_path, img)
+            plt.imsave(meas_path, img_)
+            del img_
 
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
