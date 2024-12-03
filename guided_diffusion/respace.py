@@ -195,9 +195,9 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             x_new = x_old - zeta_i * grad
         
         # == prints for evaluating progress == #
-        print(f"loss = {loss.item()}")
-        print(f"zeta_i = {zeta_i}")
-        print(f"update magnitude = {th.norm(x_old - x_new)}")
+        # print(f"loss = {loss.item()}")
+        # print(f"zeta_i = {zeta_i}")
+        # print(f"update magnitude = {th.norm(x_old - x_new)}")
 
         return x_new.detach()
     

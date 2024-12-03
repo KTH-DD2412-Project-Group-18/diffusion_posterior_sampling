@@ -56,8 +56,6 @@ def main():
     t_start = datetime.now()
     all_images = []
     while len(all_images) * args.batch_size < args.num_samples:
-        model_kwargs = {}
-        
         if args.dps_update:
             # =========================================== #
             # Perform the DPS sampling as in algorithm 1/2
@@ -86,6 +84,13 @@ def main():
             
             img = imgs[-1].requires_grad_(False) # no need for gradients of y
             
+            # Save image for reference
+            img = denormalize_imagenet(img)
+            img = img.permute(1,2,0).numpy()
+            img = np.clip(img, 0, 1)
+            meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
+            plt.imsave(meas_path, img)
+
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
                 measurement_model=measurement_model,
@@ -110,13 +115,6 @@ def main():
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size),
             )
-            
-            # Also save image for reference
-            img = denormalize_imagenet(imgs[0])
-            img = img.permute(1,2,0).numpy()
-            img = np.clip(img, 0, 1)
-            meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
-            plt.imsave(meas_path, img)
 
         else:
             sample_fn = (
