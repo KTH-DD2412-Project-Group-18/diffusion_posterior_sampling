@@ -279,15 +279,23 @@ class MotionBlur(object):
     The motion blur kernel is an external kernel from (see link)
         link: https://github.com/LeviBorodenko/motionblur/tree/master
     """
-    def __init__(self, kernel_size, intensity) -> None:
+    def __init__(self, kernel_size=(61,61), intensity=0.5) -> None:
         self.kernel_size = kernel_size
         self.intensity = intensity
 
     def __call__(self, tensor):
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+
         kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
-        kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype)
+        kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
         kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
-        num_channels = tensor.size(0)
-        kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1) 
-        blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=3)
-        return blurred
+        num_channels = tensor.size(1)
+        kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
+        print('tensor: ',tensor.shape)
+        print('kernel_tensor ',kernel_tensor.shape)
+        blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
+        
+        # Return with original dimensions
+        return blurred.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else blurred
