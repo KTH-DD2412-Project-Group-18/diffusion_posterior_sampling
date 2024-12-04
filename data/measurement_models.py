@@ -60,16 +60,24 @@ class RandomInpainting(object):
         mask = (torch.rand((b, 1, h, w), device=device) > 0.5)
         mask = mask.expand(-1, c, -1, -1)
         
+        return tensor * mask
+    
+    def forward_noise(self, tensor):
+        tensor = tensor.squeeze(0) if len(tensor.shape) == 4 else tensor
+        device = tensor.device
+        tensor = self(tensor)
+        tensor = self.noiser(tensor, device)
+        return tensor.squeeze(0) if (len(tensor.shape) == 4) and (tensor.shape[0] == 1) else tensor
+    
+    def noiser(self, tensor, device):
         if self.noise_model == "gaussian":
             noise = torch.randn(tensor.shape, device=device) * self.sigma
-            result = tensor * mask + noise
+            result = tensor + noise
         else:
-            masked = tensor * mask
+            masked = tensor
             result = torch.poisson(masked)
-            
-        # Return with original dimensions
-        return result.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else result
-            
+        return result
+    
     def __repr__(self):
         return self.__class__.__name__ + f"(mean={0}, std={1})"
 
@@ -86,36 +94,81 @@ class BoxInpainting(object):
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
         self.noise_model = noise_model
+        self.x1 = None
+        self.x2 = None
+        self.box_h = None
+        self.box_w = None
+        self.box_values = False
         if (noise_model != "gaussian") and (noise_model != "poisson"):
             print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson' ")
-            return ValueError 
+            return ValueError
+        
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""
+
+        # Only generate box values the first time. Needs to have consistent
+        # forward operation for all steps. 
+        if self.box_values == True: 
+            return
+        
         _, h, w = x.shape
 
         max_x = h - 128 if h >= 128 else 0
         max_y = w - 128 if w >= 128 else 0
         
-        x1 = torch.randint(0, max(1, max_x), (1,)).item()
-        x2 = torch.randint(0, max(1, max_y), (1,)).item()
+        self.x1 = torch.randint(0, max(1, max_x), (1,)).item()
+        self.x2 = torch.randint(0, max(1, max_y), (1,)).item()
         
-        box_h = min(128, h)
-        box_w = min(128, w)
+        self.box_h = min(128, h)
+        self.box_w = min(128, w)
+
+        self.box_values = True
         
-        return x1, x2, box_h, box_w
+        return
 
     def __call__(self, tensor):
+        device = tensor.device
         _, h, w = tensor.shape  # tensor shape is [channels, height, width]
         x = tensor
-        x1, x2, box_h, box_w = self.box(x)
+        self.box(x)
+
+        # Handle batch dimension consistently
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+            
+        b, c, h, w = x.shape
+
+        # Generate mask on the correct device
+        mask = (torch.rand((b, 1, 128, 128), device=device) > 0.5)
+        mask = mask.expand(-1, c, -1, -1)
         
+        x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
+            = x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
+            * mask
+
+        return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x
+ 
+    def forward_noise(self, x):
+        # Handle batch dimension consistently
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        x = self.noiser(x)
+        return x
+
+    def noiser(self, x):
+        # Handle batch dimension consistently
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+
         if self.noise_model == "gaussian":
-            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.randn((3, box_h, box_w)) * self.sigma
-            return x
+            x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
+                = torch.randn((3, self.box_h, self.box_w)) * self.sigma
+            return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x
         elif self.noise_model == "poisson":
-            x[:, x1:x1 + box_h, x2:x2 + box_w] = torch.poisson(x[:, x1:x1 + box_h, x2:x2 + box_w])
-            return x  
+            x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
+                  = torch.poisson(x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w])
+            return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x 
         else: 
             return None
 
@@ -210,11 +263,16 @@ class NonLinearBlurring(object):
         self.sigma = sigma
 
     def generate_blur(self, tensor):
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            x = tensor.unsqueeze(0)
+
         # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py 
+        device = tensor.device
         current_dir = os.path.dirname(os.path.abspath(__file__))
         yml_path = os.path.join(current_dir, "blur_models", "default.yml") 
-        print(yml_path)
-        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+        #print(yml_path)
+        #device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         # Initializing mode
         with open(yml_path, "r") as f:
@@ -231,19 +289,22 @@ class NonLinearBlurring(object):
             LQ_tensor = model.adaptKernel(tensor, kernel=kernel)
             LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1) #[0, 1] -> [-1, 1]
 
-        return LQ_tensor
+        return LQ_tensor.squeeze(0) if (len(LQ_tensor.shape) == 4) and (LQ_tensor.shape[0] == 1) else LQ_tensor
 
     def __call__(self, tensor):
         blurred_img = self.generate_blur(tensor)
-        x = blurred_img
+        return blurred_img
+ 
+    def forward_noise(self, tensor):
+        return self.noiser(tensor)
 
+    def noiser(self, tensor):
         if self.noise_model == "gaussian":
-            return x + torch.randn(size=x.size())*self.sigma**2
+            return tensor + torch.randn(size=tensor.size())*self.sigma**2
         elif self.noise_model == "poisson":
-            return torch.poisson(x) 
+            return torch.poisson(tensor) 
         else: 
             return None
- 
        
 class GaussianBlur(object):
     """
