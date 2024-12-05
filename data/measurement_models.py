@@ -112,7 +112,7 @@ class BoxInpainting(object):
         if self.box_values == True: 
             return
         
-        _, h, w = x.shape
+        _, _, h, w = x.shape
 
         max_x = h - 128 if h >= 128 else 0
         max_y = w - 128 if w >= 128 else 0
@@ -129,15 +129,15 @@ class BoxInpainting(object):
 
     def __call__(self, tensor):
         device = tensor.device
-        _, h, w = tensor.shape  # tensor shape is [channels, height, width]
+            
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+            
+        b, c, h, w = tensor.shape
+
         x = tensor
         self.box(x)
-
-        # Handle batch dimension consistently
-        if len(x.shape) == 3:
-            x = x.unsqueeze(0)
-            
-        b, c, h, w = x.shape
 
         # Generate mask on the correct device
         mask = (torch.rand((b, 1, 128, 128), device=device) > 0.5)
