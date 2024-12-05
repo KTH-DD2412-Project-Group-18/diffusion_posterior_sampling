@@ -122,7 +122,7 @@ class PoissonMseLoss(th.nn.Module):
     
     def forward(self, x, y):
         assert x.shape == y.shape, f"Shape missmatch between operator with shape {x.shape} and observation with shape {y.shape}"
-        lambda_matrix = th.diag(1. / (2*y))
+        lambda_matrix = th.diag(1. / (2*th.abs(y))) # take absolute value of y (for "correct" mathematics)
         diff = (x - y)
         loss = diff.T @ lambda_matrix @ diff
         return loss
@@ -194,6 +194,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             #print(f"step_size constant = {th.linalg.norm(th.abs(y_pred-self.measurement))} other constant = {th.sqrt(loss).item()}")
             zeta_i = self.step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
             x_new = x_old - zeta_i * grad
+        
         # == prints for evaluating progress == #
         # print(f"loss = {loss.item()}")
         # print(f"zeta_i = {zeta_i}")

@@ -1,3 +1,7 @@
 Logging to ./temp/
 creating model and diffusion...
-created DPS-diffusion model with step_size = 130.0..
+created DPS-diffusion model with step_size = 1.0..
+created 1 samples
+saving to ./temp/samples_1x256x256x3.npz
+Saved sample image to ./temp/sample_0.png
+sampling complete

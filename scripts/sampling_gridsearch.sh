@@ -1,6 +1,6 @@
 #!/bin/bash
 
-step_sizes=(0.1 0.5 1.0 2.0 3.0 4.0 5.0 10.0 20.0 30.0 40.0 50.0 100.0 200. 300. 500. 750. 900. 1000.0 10000.0 100000.0)
+step_sizes=(0.1 0.5 1.0 2.0 3.0 4.0 5.0)
 
 for step_size in "${step_sizes[@]}"; do
     echo "Running experiment with step_size = $step_size"

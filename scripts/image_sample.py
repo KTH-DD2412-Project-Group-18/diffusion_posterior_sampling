@@ -2,9 +2,12 @@
 Generate a large batch of image samples from a model and save them as a large
 numpy array. This can be used to produce samples for FID evaluation.
 Source: openAI
+
+Modified by Alexander Gutell, Dan Vicente and Ludvig Skare in 2024
 """
 
 import os
+import time
 from datetime import datetime
 import argparse
 import numpy as np
@@ -25,6 +28,7 @@ from guided_diffusion.script_util import (
 )
 from PIL import Image
 import matplotlib.pyplot as plt
+from data.data_utils import SingleImageDataset
 
 def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -36,9 +40,6 @@ def main():
     rank = 0 # or rank = dist.get_rank()
 
     # dist_util.setup_dist()
-    logger.configure(dir="./temp/")
-
-    logger.log("creating model and diffusion...")
 
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
@@ -54,6 +55,7 @@ def main():
     model.eval()
 
     t_start = datetime.now()
+
     all_images = []
     while len(all_images) * args.batch_size < args.num_samples:
         if args.dps_update:
@@ -65,19 +67,27 @@ def main():
                  noise_model=args.noise_model,
                  sigma=args.sigma
             )
+
+            logger.configure(dir=f"./output/{measurement_model}/{time.time()}")
+            logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler...")
             
-            data = datasets.ImageFolder("./datasets/imagenet/val2", 
-                                            transform= transforms.Compose([
-                                                transforms.Resize((256, 256)),
-                                                transforms.ToTensor(),
-                                                #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                                                transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
-                                                measurement_model.forward_noise,
-                      ])
-                      )
+            # Compute the forward measurement + noise
+            transform = transforms.Compose([
+                transforms.Resize((256, 256)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                #transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
+                measurement_model.forward_noise,
+            ])
+            
+            if args.single_image_data:
+                data = SingleImageDataset(args.data_path, transform=transform)
+            else:
+                data = datasets.ImageFolder(args.data_path, transform=transform)
+
             dataloader = th.utils.data.DataLoader(
                 data,
-                batch_size=10,
+                batch_size=args.batch_size,
                 shuffle=False
             )
             imgs, _ = next(iter(dataloader))
@@ -179,7 +189,10 @@ def create_argparser():
         measurement_model="BoxInpainting",
         noise_model="gaussian",
         sigma=.05,
-        step_size=1.
+        step_size=1.,
+        data_path="./datasets/imagenet/val2", # Default = ImageNet validation
+        sampling_batch_size=10,
+        single_image_data=True
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

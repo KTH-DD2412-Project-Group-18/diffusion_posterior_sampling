@@ -173,3 +173,5 @@ datasets/*
 !datasets/README.md
 !datasets/*.py
 data/blur_models/pretrained/GOPRO_wVAE.pth
+*.txt
+*.csv
