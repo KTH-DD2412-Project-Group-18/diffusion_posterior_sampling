@@ -56,7 +56,7 @@ class RandomInpainting(object):
         if self.mask is None:
             mask = (torch.rand((b, 1, h, w), device=device) > 0.92)
             self.mask = mask.expand(-1, c, -1, -1)
-        return tensor * self.mask
+        return tensor * self.mask.to(device)
     
     def forward_noise(self, tensor):
         tensor = tensor.squeeze(0) if len(tensor.shape) == 4 else tensor
