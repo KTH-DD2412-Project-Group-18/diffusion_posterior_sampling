@@ -259,7 +259,9 @@ class NonLinearBlurring(object):
     F(x,k) is a external pretrained model from (see link)
         link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
     """
-    def __init__(self, noise_model="gaussian", sigma=1.):
+    def __init__(self, noise_model="gaussian", sigma=.05):
+        if noise_model not in ["gaussian", "poisson"]:
+            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
         self.sigma = sigma
 
     def generate_blur(self, tensor):
@@ -300,7 +302,7 @@ class NonLinearBlurring(object):
 
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size())*self.sigma**2
+            return tensor + torch.randn(size=tensor.size()) * self.sigma
         elif self.noise_model == "poisson":
             return torch.poisson(tensor) 
         else: 
@@ -312,27 +314,45 @@ class GaussianBlur(object):
     The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
     the measurement. 
     """
-    def __init__(self, kernel_size=(61,61), sigma=.05):
+    def __init__(self, noise_model='gaussian', kernel_size=(61,61), sigma_in_conv=3, sigma=.05):
+        if noise_model not in ["gaussian", "poisson"]:
+            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
+        self.noise_model = noise_model
         self.kernel_size = kernel_size
+        self.sigma_in_conv = sigma_in_conv
         self.sigma = sigma
 
-    def gaussian_kernel(self):
+    def gaussian_kernel(self, device=None):
         size = self.kernel_size[0]
-        x = torch.linspace(-(size // 2), size // 2, size)
-        y = torch.linspace(-(size // 2), size // 2, size)
+        x = torch.linspace(-(size // 2), size // 2, size, device=device)
+        y = torch.linspace(-(size // 2), size // 2, size, device=device)
         x, y = torch.meshgrid(x, y, indexing='xy')
-        kernel = torch.exp(-(x**2 + y**2) / (2 * self.sigma**2))
-        kernel /= kernel.sum()  
+        kernel = torch.exp(-(x**2 + y**2) / (2 * self.sigma_in_conv**2))
+        kernel /= kernel.sum()
         return kernel
 
     def __call__(self, tensor):
-        kernel = self.gaussian_kernel()
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+        device = tensor.device  
+        kernel = self.gaussian_kernel(device=device)
         kernel = kernel.unsqueeze(0).unsqueeze(0)
-        num_channels = tensor.size(0)
+        num_channels = tensor.size(1)
         kernel = kernel.repeat(num_channels, 1, 1, 1)
-        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=3)
-        return blurred
+        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=num_channels)
+        return blurred.squeeze(0) if (len(blurred.shape) == 4) and (blurred.shape[0] == 1) else blurred
     
+    def forward_noise(self, tensor):
+        return self.noiser(tensor)
+
+    def noiser(self, tensor):
+        if self.noise_model == "gaussian":
+            return tensor + torch.randn(size=tensor.size()) * self.sigma
+        elif self.noise_model == "poisson":
+            return torch.poisson(tensor) 
+        else: 
+            return None
     
 class MotionBlur(object):
     """
@@ -340,9 +360,13 @@ class MotionBlur(object):
     The motion blur kernel is an external kernel from (see link)
         link: https://github.com/LeviBorodenko/motionblur/tree/master
     """
-    def __init__(self, kernel_size=(61,61), intensity=0.5) -> None:
+    def __init__(self, noise_model="gaussian", kernel_size=(61,61), intensity=0.5, sigma=.05) -> None:
+        if noise_model not in ["gaussian", "poisson"]:
+            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
+        self.noise_model = noise_model
         self.kernel_size = kernel_size
         self.intensity = intensity
+        self.sigma = sigma
 
     def __call__(self, tensor):
         # Handle batch dimension consistently
@@ -354,9 +378,19 @@ class MotionBlur(object):
         kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
         num_channels = tensor.size(1)
         kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
-        print('tensor: ',tensor.shape)
-        print('kernel_tensor ',kernel_tensor.shape)
         blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
-        
+
         # Return with original dimensions
         return blurred.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else blurred
+    
+    def forward_noise(self, tensor):
+        return self.noiser(tensor)
+    
+    def noiser(self, tensor):
+        if self.noise_model == "gaussian":
+            return tensor + torch.randn(size=tensor.size()) * self.sigma
+        elif self.noise_model == "poisson":
+            return torch.poisson(tensor) 
+        else: 
+            return None
+
