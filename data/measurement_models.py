@@ -138,7 +138,7 @@ class BoxInpainting(object):
         self.box(x)
 
         # Generate mask on the correct device
-        mask = (torch.rand((b, 1, 128, 128), device=device) > 0.5)
+        mask = (torch.zeros((b, 1, 128, 128), device=device) > 0.5)
         mask = mask.expand(-1, c, -1, -1)
         
         x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
@@ -154,19 +154,11 @@ class BoxInpainting(object):
         x = self.noiser(x)
         return x
 
-    def noiser(self, x):
-        # Handle batch dimension consistently
-        if len(x.shape) == 3:
-            x = x.unsqueeze(0)
-
+    def noiser(self, tensor):
         if self.noise_model == "gaussian":
-            x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
-                = torch.randn((3, self.box_h, self.box_w)) * self.sigma
-            return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x
+            return tensor + torch.randn(size=tensor.size()) * self.sigma
         elif self.noise_model == "poisson":
-            x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
-                  = torch.poisson(x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w])
-            return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x 
+            return torch.poisson(tensor) 
         else: 
             return None
 
