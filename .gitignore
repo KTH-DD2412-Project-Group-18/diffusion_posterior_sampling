@@ -166,7 +166,7 @@ cython_debug/
 
 
 # Ignore some data-specific stuff for images and modelss
-*.pt
+#*.pt
 *.JPEG
 *.png
 datasets/*
