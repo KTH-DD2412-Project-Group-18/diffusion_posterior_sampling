@@ -36,7 +36,7 @@ def main():
     rank = 0 # or rank = dist.get_rank()
 
     # dist_util.setup_dist()
-    logger.configure()
+    logger.configure(dir="./temp/")
 
     logger.log("creating model and diffusion...")
 

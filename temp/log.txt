@@ -1,0 +1,3 @@
+Logging to ./temp/
+creating model and diffusion...
+created DPS-diffusion model with step_size = 130.0..
