@@ -183,7 +183,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         # == Compute recon-loss == #
         with th.set_grad_enabled(True):
-            print('x0 shape: ', x0.shape)
+            # print('x0 shape: ', x0.shape)
             y_pred = self.measurement_model(x0)
             if len(y_pred.shape) != 4:
                 y_pred = y_pred.unsqueeze(0)    
