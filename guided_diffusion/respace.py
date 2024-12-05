@@ -159,7 +159,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         self.noise_model = noise_model
         self.step_size = step_size
         if self.noise_model == "gaussian":
-            self.measurement_loss = th.nn.MSELoss()
+            self.measurement_loss = th.nn.MSELoss(reduction="sum")
         elif self.noise_model == "poisson":
             self.measurement_loss = PoissonMseLoss()
         else:
@@ -183,7 +183,6 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         # == Compute recon-loss == #
         with th.set_grad_enabled(True):
-            # print('x0 shape: ', x0.shape)
             y_pred = self.measurement_model(x0)
             if len(y_pred.shape) != 4:
                 y_pred = y_pred.unsqueeze(0)    
@@ -192,9 +191,9 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         # === step 7 === #
         with th.no_grad():
-            zeta_i = self.step_size / th.sqrt(loss).item() if loss.item() > 0 else self.step_size
+            #print(f"step_size constant = {th.linalg.norm(th.abs(y_pred-self.measurement))} other constant = {th.sqrt(loss).item()}")
+            zeta_i = self.step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
             x_new = x_old - zeta_i * grad
-        
         # == prints for evaluating progress == #
         # print(f"loss = {loss.item()}")
         # print(f"zeta_i = {zeta_i}")
