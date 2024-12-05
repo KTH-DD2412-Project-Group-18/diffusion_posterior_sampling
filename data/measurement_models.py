@@ -26,8 +26,8 @@ class Identity(object):
             return torch.poisson(tensor)
         else: 
             return tensor
+  
     
-
 class RandomInpainting(object):
     """ 
     Implements the random-inpainting forward measurement model
@@ -42,6 +42,7 @@ class RandomInpainting(object):
     - noise_model: str = which model to implement "gaussian" | "poisson"
     """
     def __init__(self, noise_model="gaussian", sigma=.05):
+        self.mask = None
         self.sigma = sigma
         if noise_model not in ["gaussian", "poisson"]:
             raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
@@ -49,26 +50,23 @@ class RandomInpainting(object):
         
     def __call__(self, tensor):
         device = tensor.device
-        
-        # Handle batch dimension consistently
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
-            
         b, c, h, w = tensor.shape
-        
-        # Generate mask on the correct device
-        mask = (torch.rand((b, 1, h, w), device=device) > 0.5)
-        mask = mask.expand(-1, c, -1, -1)
-        
-        return tensor * mask
+        if self.mask is None:
+            mask = (torch.rand((b, 1, h, w), device=device) > 0.92)
+            self.mask = mask.expand(-1, c, -1, -1)
+        return tensor * self.mask
     
     def forward_noise(self, tensor):
         tensor = tensor.squeeze(0) if len(tensor.shape) == 4 else tensor
         device = tensor.device
         tensor = self(tensor)
         tensor = self.noiser(tensor, device)
-        return tensor.squeeze(0) if (len(tensor.shape) == 4) and (tensor.shape[0] == 1) else tensor
-    
+        if (len(tensor.shape) == 4) and (tensor.shape[0] == 1):
+            tensor = tensor.squeeze(0)
+        return tensor
+        
     def noiser(self, tensor, device):
         if self.noise_model == "gaussian":
             noise = torch.randn(tensor.shape, device=device) * self.sigma
@@ -79,7 +77,7 @@ class RandomInpainting(object):
         return result
     
     def __repr__(self):
-        return self.__class__.__name__ + f"(mean={0}, std={1})"
+        return self.__class__.__name__
 
 
 class BoxInpainting(object):
