@@ -70,9 +70,9 @@ def main():
                                             transform= transforms.Compose([
                                                 transforms.Resize((256, 256)),
                                                 transforms.ToTensor(),
-                                                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                                                #transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
-                                                measurement_model,
+                                                #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                                                transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
+                                                measurement_model.forward_noise,
                       ])
                       )
             dataloader = th.utils.data.DataLoader(
@@ -83,7 +83,7 @@ def main():
             imgs, _ = next(iter(dataloader))
             
             img = imgs[-1].requires_grad_(False) # no need for gradients of y
-            
+
             # Save image for reference
             img_ = denormalize_imagenet(img)
             img_ = img_.permute(1,2,0).numpy()
@@ -174,7 +174,7 @@ def create_argparser():
         num_samples=10000,
         batch_size=16,
         use_ddim=False,
-        model_path="./models/512x512_diffusion.pt",
+        model_path="./models/256x256_diffusion_uncond.pt",
         dps_update=True,
         measurement_model="BoxInpainting",
         noise_model="gaussian",
