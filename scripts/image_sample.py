@@ -143,12 +143,11 @@ def main():
 
         sample = (sample + 1) / 2
 
-        mean = th.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(sample.device)
-        std = th.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(sample.device)
-        sample = (sample - mean) / std
+        #mean = th.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(sample.device)
+        #std = th.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(sample.device)
+        #sample = (sample - mean) / std
 
         sample = denormalize_imagenet(sample)
-
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
         sample = sample.permute(0, 2, 3, 1)
         sample = sample.contiguous()
