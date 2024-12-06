@@ -11,12 +11,12 @@ import numpy as np
 if __name__ == "__main__":
 
     # measurement_model = BoxInpainting(noise_model="gaussian", sigma=1.)
-    # measurement_model = SuperResolution(downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05)
+    measurement_model = SuperResolution(downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05)
     # measurement_model = RandomInpainting(noise_model="gaussian", sigma=0.05)
     # measurement_model = BoxInpainting(noise_model="gaussian", sigma=0.05)
     # measurement_model = NonLinearBlurring(noise_model="gaussian", sigma=0.05)
     # measurement_model, model = GaussianBlur(kernel_size=(61,61), sigma=0.05), 'Gaussian'
-    measurement_model = MotionBlur()
+    # measurement_model = MotionBlur()
 
     # -- 
     # We create an ImageFolder with our transformation according to our measurement_model
