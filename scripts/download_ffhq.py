@@ -1,4 +1,8 @@
-from datasets import load_dataset, Dataset
+"""
+Script to download FFHQ resized to 256x256 "validation" set.
+"""
+
+from datasets import load_dataset
 import os
 from PIL import Image
 import io
@@ -23,7 +27,6 @@ def process_images(dataset, output_path, num_images:int = 1000):
                 image = example["image"]
                 if not isinstance(image, Image.Image):
                     image = Image.open(io.BytesIO(image["bytes"]))
-                
                 image_path = os.path.join(output_path, f"image_{idx:08d}.jpg")
                 image.save(image_path, quality=95)
                 pbar.update(1)
