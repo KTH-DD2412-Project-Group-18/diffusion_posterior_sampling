@@ -375,7 +375,7 @@ class MotionBlur(object):
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
 
-        if kernel_tensor == None:
+        if self.kernel_tensor == None:
             kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
             kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
             kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
