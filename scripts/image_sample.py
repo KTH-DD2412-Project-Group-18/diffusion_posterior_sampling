@@ -75,7 +75,7 @@ def main():
             )
 
             dataset = args.data_path.split("/")
-            logger.configure(dir=f"./output/{measurement_model}/{dataset[2]}{time.time()}")
+            logger.configure(dir=f"./output/{measurement_model}/{dataset[2]}/{time.time()}")
             logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler...")
             
             # Compute the forward measurement + noise
