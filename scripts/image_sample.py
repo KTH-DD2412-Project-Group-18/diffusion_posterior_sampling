@@ -36,8 +36,8 @@ def denormalize_imagenet(tensor):
                 std = th.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
                 return tensor * std + mean
 
-def denormalize_cheating(tensor):
-    return (tensor.cpu().numpy - tensor.min())/tensor.max()
+def minmax_normalization(x: np.ndarray):
+    return (x - x.min()) / (x.max() - x.min())
 
 def main():
     args = create_argparser().parse_args()
@@ -74,7 +74,8 @@ def main():
                  sigma=args.sigma
             )
 
-            logger.configure(dir=f"./output/{measurement_model}/{time.time()}")
+            dataset = args.data_path.split("/")
+            logger.configure(dir=f"./output/{measurement_model}/{dataset[2]}{time.time()}")
             logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler...")
             
             # Compute the forward measurement + noise
@@ -136,7 +137,6 @@ def main():
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size),
             )
-
         else:
             sample_fn = (
                 diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
@@ -150,7 +150,8 @@ def main():
         #sample = denormalize_imagenet(sample)
         sample = sample.cpu().permute(0, 2, 3, 1).numpy()
         #sample = np.clip(sample, 0, 1)
-        #sample = (sample * 255).astype(np.uint8)
+        sample = minmax_normalization(sample)
+        sample = (sample * 255).astype(np.uint8)
 
         if rank > 1:
             gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
