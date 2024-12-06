@@ -149,6 +149,7 @@ def main():
         #sample = (sample + 1) / 2
         sample = denormalize_imagenet(sample)
         sample = sample.cpu().permute(0, 2, 3, 1).numpy()
+        sample = (sample - sample.min()) / (sample.max() - sample.min())
         sample = np.clip(sample, 0, 1)
         sample = (sample * 255).astype(np.uint8)
 
