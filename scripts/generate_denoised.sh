@@ -38,7 +38,7 @@ for class_folder in "$EVAL_DIR"/*; do
         --step_size "1.0" \
         --data_path "$class_folder" \
         --sampling_batch_size "1" \
-        --single_image_date "True" 
+        --single_image_data "True"
 done
 
 END_TIME=$(date +%s)
