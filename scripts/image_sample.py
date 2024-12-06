@@ -142,23 +142,17 @@ def main():
             )
 
         sample = (sample + 1) / 2
-
-        #mean = th.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(sample.device)
-        #std = th.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(sample.device)
-        #sample = (sample - mean) / std
-
         sample = denormalize_imagenet(sample)
-        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        sample = sample.permute(0, 2, 3, 1)
-        sample = sample.contiguous()
+        sample = sample.cpu().permute(0, 2, 3, 1).numpy()
+        sample = np.clip(sample, 0, 1)
+        sample = (sample * 255).astype(np.uint8)
 
-        # if dist.get_world_size() > 1: ###
         if rank > 1:
             gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
             dist_util.safe_all_gather(gathered_samples, sample)
-            all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
+            all_images.extend([sample for sample in gathered_samples])
         else:
-            all_images.append(sample.cpu().numpy())
+            all_images.append(sample)
 
         logger.log(f"created {len(all_images) * args.batch_size} samples")
 
