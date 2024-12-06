@@ -37,7 +37,7 @@ def load_or_download_imagenet(output_path="./datasets/256"):
 
 def create_imagenet_folders(dataset, output_base_path, class_mapping_path=None):
     os.makedirs(output_base_path, exist_ok=True)
-    
+
     try:
         if class_mapping_path and os.path.exists(class_mapping_path):
             with open(class_mapping_path, "r") as f:
@@ -54,11 +54,11 @@ def create_imagenet_folders(dataset, output_base_path, class_mapping_path=None):
     with tqdm(total=len(dataset), desc="Processing images") as pbar:
         for idx, example in enumerate(dataset):
             try:
-                image = example['image']
-                label = example['label']
+                image = example["image"]
+                label = example["label"]
                 
                 if not isinstance(image, Image.Image):
-                    image = Image.open(io.BytesIO(image['bytes']))
+                    image = Image.open(io.BytesIO(image["bytes"]))
                 
                 image_path = os.path.join(
                     output_base_path, 

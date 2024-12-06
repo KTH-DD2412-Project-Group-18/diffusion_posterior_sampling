@@ -37,7 +37,7 @@ for class_folder in "$EVAL_DIR"/*; do
         --sigma "0.05" \
         --step_size "1.0" \
         --data_path "$class_folder" \
-        --sampling_batch_size "1" \
+        --sampling_batch_size "10" \
         --single_image_data "True"
 done
 

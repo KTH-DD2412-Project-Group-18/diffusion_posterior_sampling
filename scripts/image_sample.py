@@ -86,7 +86,7 @@ def main():
 
             dataloader = th.utils.data.DataLoader(
                 dataset,
-                batch_size=args.batch_size, 
+                batch_size=args.sampling_batch_size, 
                 shuffle=False
             )
 
