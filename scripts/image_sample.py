@@ -141,7 +141,7 @@ def main():
                 (args.batch_size, 3, args.image_size, args.image_size)
             )
 
-        sample = (sample + 1) / 2
+        #sample = (sample + 1) / 2
         sample = denormalize_imagenet(sample)
         sample = sample.cpu().permute(0, 2, 3, 1).numpy()
         sample = np.clip(sample, 0, 1)
