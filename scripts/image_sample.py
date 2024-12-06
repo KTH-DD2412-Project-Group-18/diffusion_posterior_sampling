@@ -36,6 +36,9 @@ def denormalize_imagenet(tensor):
                 std = th.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
                 return tensor * std + mean
 
+def denormalize_cheating(tensor):
+    return (tensor.cpu().numpy - tensor.min())/tensor.max()
+
 def main():
     args = create_argparser().parse_args()
     rank = 0 # or rank = dist.get_rank()
@@ -142,10 +145,10 @@ def main():
             )
 
         #sample = (sample + 1) / 2
-        sample = denormalize_imagenet(sample)
+        #sample = denormalize_imagenet(sample)
         sample = sample.cpu().permute(0, 2, 3, 1).numpy()
-        sample = np.clip(sample, 0, 1)
-        sample = (sample * 255).astype(np.uint8)
+        #sample = np.clip(sample, 0, 1)
+        #sample = (sample * 255).astype(np.uint8)
 
         if rank > 1:
             gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
