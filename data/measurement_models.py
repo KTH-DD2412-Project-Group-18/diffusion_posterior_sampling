@@ -41,9 +41,10 @@ class RandomInpainting(object):
     - sigma: float = variance of Gaussian noise
     - noise_model: str = which model to implement "gaussian" | "poisson"
     """
-    def __init__(self, noise_model="gaussian", sigma=.05):
+    def __init__(self, noise_model="gaussian", sigma=.05, noise_level = .5):
         self.mask = None
         self.sigma = sigma
+        self.noise_level = noise_level
         if noise_model not in ["gaussian", "poisson"]:
             raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
         self.noise_model = noise_model
@@ -54,7 +55,7 @@ class RandomInpainting(object):
             tensor = tensor.unsqueeze(0)
         b, c, h, w = tensor.shape
         if self.mask is None:
-            mask = (torch.rand((b, 1, h, w), device=device) > 0.92)
+            mask = (torch.rand((b, 1, h, w), device=device) > self.noise_level)
             self.mask = mask.expand(-1, c, -1, -1)
         return tensor * self.mask.to(device)
     
