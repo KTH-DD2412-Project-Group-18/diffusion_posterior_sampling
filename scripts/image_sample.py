@@ -31,8 +31,9 @@ import matplotlib.pyplot as plt
 from data.data_utils import SingleImageDataset
 
 def denormalize_imagenet(tensor):
-                mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-                std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+                device = tensor.device
+                mean = th.tensor([0.485, 0.456, 0.406], device=device).view(3, 1, 1)
+                std = th.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
                 return tensor * std + mean
 
 def main():
@@ -76,36 +77,40 @@ def main():
                 transforms.Resize((256, 256)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                #transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5)), # from their code. Why these vals?
-                measurement_model.forward_noise,
             ])
-            
+
             if args.single_image_data:
-                data = SingleImageDataset(args.data_path, transform=transform)
+                dataset = SingleImageDataset(args.data_path, transform=transform)
             else:
-                data = datasets.ImageFolder(args.data_path, transform=transform)
+                dataset = datasets.ImageFolder(args.data_path, transform=transform)
 
             dataloader = th.utils.data.DataLoader(
-                data,
-                batch_size=args.batch_size,
+                dataset,
+                batch_size=args.batch_size, 
                 shuffle=False
             )
-            imgs, _ = next(iter(dataloader))
-            
-            img = imgs[-1].requires_grad_(False) # no need for gradients of y
 
-            # Save image for reference
-            img_ = denormalize_imagenet(img)
-            img_ = img_.permute(1,2,0).numpy()
-            img_ = np.clip(img_, 0, 1)
-            meas_path = os.path.join(logger.get_dir(), "noisy_meas.png")
-            plt.imsave(meas_path, img_)
-            del img_
+            imgs_clean, _ = next(iter(dataloader))
+            img_clean = imgs_clean[-1].requires_grad_(False)
+            img_noisy = measurement_model.forward_noise(img_clean.clone())
+
+            # Save clean + noisy images for reference
+            for prefix, img in [("clean", img_clean), ("noisy", img_noisy)]:
+                if len(img.shape) == 4:
+                    img_ = img.squeeze(0)
+                else:
+                    img_ = img
+                img_ = denormalize_imagenet(img_)
+                img_ = img_.permute(1,2,0).numpy()
+                img_ = np.clip(img_, 0, 1)
+                save_path = os.path.join(logger.get_dir(), f"{prefix}_meas.png")
+                plt.imsave(save_path, img_)
+                del img_
 
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
                 measurement_model=measurement_model,
-                measurement=img.to(dev),
+                measurement=img_noisy.to(dev),
                 noise_model=args.noise_model,
                 step_size=args.step_size,
                 image_size=args.image_size,
@@ -135,6 +140,14 @@ def main():
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size)
             )
+
+        sample = (sample + 1) / 2
+
+        mean = th.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(sample.device)
+        std = th.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(sample.device)
+        sample = (sample - mean) / std
+
+        sample = denormalize_imagenet(sample)
 
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
         sample = sample.permute(0, 2, 3, 1)

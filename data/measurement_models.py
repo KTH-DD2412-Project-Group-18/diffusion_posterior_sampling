@@ -85,9 +85,6 @@ class BoxInpainting(object):
     Implements the box inpainting forward measurement model
     - y ~ N(y|Px, sigma**2 * I) if noise_model = "gaussian"
     - y ~ Poisson(Px; lamb) if noise_model = "poisson"
-    
-    TODO: Same box is generated for all images in the batch. 
-          Change or keep it as it is. 
     """
     def __init__(self, noise_model="gaussian", sigma=1.):
         self.sigma = sigma
@@ -104,10 +101,9 @@ class BoxInpainting(object):
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""
-
         # Only generate box values the first time. Needs to have consistent
         # forward operation for all steps. 
-        if self.box_values == True: 
+        if self.box_values: 
             return
         
         _, _, h, w = x.shape
@@ -147,12 +143,13 @@ class BoxInpainting(object):
 
         return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x
  
-    def forward_noise(self, x):
+    def forward_noise(self, tensor):
         # Handle batch dimension consistently
-        if len(x.shape) == 3:
-            x = x.unsqueeze(0)
-        x = self.noiser(x)
-        return x
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+        tensor = self(tensor)
+        tensor = self.noiser(tensor)
+        return tensor
 
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
@@ -161,7 +158,9 @@ class BoxInpainting(object):
             return torch.poisson(tensor) 
         else: 
             return None
-
+    
+    def __repr__(self):
+        return self.__class__.__name__
 
 class SuperResolution(object):
 
@@ -239,7 +238,9 @@ class SuperResolution(object):
         x_upscaled_with_noise = torch.clamp(x_upscaled_with_noise, 0, 255)
 
         return x_upscaled_with_noise, mask
-
+    
+    def __repr__(self):
+        return self.__class__.__name__
 
 class NonLinearBlurring(object):
     """
@@ -288,7 +289,9 @@ class NonLinearBlurring(object):
         return blurred_img
  
     def forward_noise(self, tensor):
-        return self.noiser(tensor)
+        tensor = self(tensor)
+        tensor = self.noiser(tensor)
+        return tensor
 
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
@@ -297,7 +300,10 @@ class NonLinearBlurring(object):
             return torch.poisson(tensor) 
         else: 
             return None
-       
+    
+    def __repr__(self):
+        return self.__class__.__name__
+
 class GaussianBlur(object):
     """
     Implements the Gaussian convolution (Gaussian noise) forward measurement model.
@@ -334,7 +340,9 @@ class GaussianBlur(object):
         return blurred.squeeze(0) if (len(blurred.shape) == 4) and (blurred.shape[0] == 1) else blurred
     
     def forward_noise(self, tensor):
-        return self.noiser(tensor)
+        tensor = self(tensor)
+        tensor = self.noiser(tensor)
+        return tensor
 
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
@@ -343,6 +351,9 @@ class GaussianBlur(object):
             return torch.poisson(tensor) 
         else: 
             return None
+    
+    def __repr__(self):
+        return self.__class__.__name__
     
 class MotionBlur(object):
     """
@@ -374,7 +385,9 @@ class MotionBlur(object):
         return blurred.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else blurred
     
     def forward_noise(self, tensor):
-        return self.noiser(tensor)
+        tensor = self(tensor)
+        tensor = self.noiser(tensor)
+        return tensor
     
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
@@ -384,3 +397,5 @@ class MotionBlur(object):
         else: 
             return None
 
+    def __repr__(self):
+        return self.__class__.__name__
