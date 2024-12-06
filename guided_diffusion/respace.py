@@ -152,7 +152,7 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         self.measurement_model = measurement_model
         if th.backends.mps.is_available():
             self.measurement = measurement.to("mps") # y = A(x) + n, where x is the clean sample
-        elif th.backends.cuda.is_available():
+        elif th.cuda.is_available():
             self.measurement = measurement.to("cuda")
         else: 
             self.measurement = measurement

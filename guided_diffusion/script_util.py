@@ -203,7 +203,7 @@ def create_dps_diffusion(
     
     if th.backends.mps.is_available():
         measurement = measurement.detach().to("mps")
-    elif th.backends.cuda.is_available():
+    elif th.cuda.is_available():
         measurement = measurement.detach().to("cuda")
     else:
         measurement = measurement.detach()
