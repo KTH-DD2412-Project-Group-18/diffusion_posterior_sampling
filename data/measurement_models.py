@@ -368,18 +368,23 @@ class MotionBlur(object):
         self.kernel_size = kernel_size
         self.intensity = intensity
         self.sigma = sigma
+        self.kernel_tensor = None
 
     def __call__(self, tensor):
         # Handle batch dimension consistently
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
 
-        kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
-        kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
-        kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
+        if kernel_tensor == None:
+            kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
+            kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
+            kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
+            num_channels = tensor.size(1)
+            kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
+            self.kernel_tensor = kernel_tensor
+
         num_channels = tensor.size(1)
-        kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
-        blurred = F.conv2d(tensor, weight=kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
+        blurred = F.conv2d(tensor, weight=self.kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
 
         # Return with original dimensions
         return blurred.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else blurred
