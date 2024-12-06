@@ -149,7 +149,7 @@ class BoxInpainting(object):
             tensor = tensor.unsqueeze(0)
         tensor = self(tensor)
         tensor = self.noiser(tensor)
-        return tensor
+        return tensor.squeeze(0) if (len(tensor.shape) == 4) and (tensor.shape[0] == 1) else tensor
 
     def noiser(self, tensor):
         if self.noise_model == "gaussian":
@@ -175,31 +175,25 @@ class SuperResolution(object):
 
     def __call__(self, tensor):
         # returns a downsampled image with added gaussian noise. I.e image from 256x256 -> 64x64 + gaussian noise
+
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+
         if tensor.get_device() == 0 and dist_util.dev() == torch.device("mps"):
             tensor = tensor.to("cpu")
             downsampled_image = self.bicubic_downsample(tensor)
-            noisy_downsample  = self.add_gaussian_noise(downsampled_image, 64)
-            upsampled_image   = self.bicubic_upsample(noisy_downsample)
-
+            upsampled_image   = self.bicubic_upsample(downsampled_image)
             upsampled_image = upsampled_image.to("mps")
         
         else: 
             downsampled_image = self.bicubic_downsample(tensor)
-            noisy_downsample = self.add_gaussian_noise(downsampled_image, 64)
-            upsampled_image   = self.bicubic_upsample(noisy_downsample)
+            upsampled_image   = self.bicubic_upsample(downsampled_image)
 
         # print("noisy_downsample from call before return: ", noisy_downsample.get_device())
-        return upsampled_image
-    
-    def denormalize(self, tensor):
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        return tensor * std + mean
+        return upsampled_image.squeeze(0) if (len(upsampled_image.shape) == 4) and (upsampled_image.shape[0] == 1) else upsampled_image
     
     def bicubic_downsample(self, image):
-        # batch_size, channels, height, width = images.shape
-        if len(image.shape) == 3:
-            image = image.unsqueeze(0)
         downsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.downscale_factor, mode='bicubic', align_corners=True)            
         downsampled_image = downsampled_image.squeeze(0)
         # print("image shape: ", downsampled_image.shape)
@@ -210,7 +204,24 @@ class SuperResolution(object):
         upsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.upscale_factor, mode='bicubic', align_corners=True)
         upsampled_image = upsampled_image.squeeze(0)
         return upsampled_image
+
+    def forward_noise(self, tensor):
+        # Handle batch dimension consistently
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+        tensor = self(tensor)
+        tensor = self.noiser(tensor)
+        return tensor
     
+    def noiser(self, tensor):
+        if self.noise_model == "gaussian":
+            return tensor + torch.randn(size=tensor.size()) * self.sigma
+        elif self.noise_model == "poisson":
+            return torch.poisson(tensor) 
+        else: 
+            return None
+    
+    """
     def add_gaussian_noise(self, image, image_size):
         image += torch.randn((3, image_size, image_size)) * self.sigma
         return image
@@ -238,10 +249,11 @@ class SuperResolution(object):
         x_upscaled_with_noise = torch.clamp(x_upscaled_with_noise, 0, 255)
 
         return x_upscaled_with_noise, mask
-    
+    """
+
     def __repr__(self):
         return self.__class__.__name__
-
+        
 class NonLinearBlurring(object):
     """
     Implements the non-linear blurring forward measurement model.
