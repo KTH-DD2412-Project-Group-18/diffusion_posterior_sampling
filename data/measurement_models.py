@@ -395,6 +395,7 @@ class MotionBlur(object):
             kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
             self.kernel_tensor = kernel_tensor
 
+        self.kernel_tensor = self.kernel_tensor.to(tensor.device)
         num_channels = tensor.size(1)
         blurred = F.conv2d(tensor, weight=self.kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
 
