@@ -55,6 +55,8 @@ def main():
     dev = dist_util.dev()
     print(f"Using device = '{dev}'")
 
+    print(f"Using measurement model: {args.measurement_model}")
+
     model.to(dev)
     model.eval()
 
