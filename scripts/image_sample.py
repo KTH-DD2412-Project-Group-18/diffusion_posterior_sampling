@@ -150,7 +150,7 @@ def main():
         #sample = denormalize_imagenet(sample)
         sample = sample.cpu().permute(0, 2, 3, 1).numpy()
         #sample = np.clip(sample, 0, 1)
-        sample = minmax_normalization(sample)
+        #sample = minmax_normalization(sample)
         sample = (sample * 255).astype(np.uint8)
 
         if rank > 1:
