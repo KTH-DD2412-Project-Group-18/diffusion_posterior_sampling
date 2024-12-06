@@ -13,9 +13,12 @@ def load_ffhq(output_path="./datasets/ffhq"):
     ds = load_dataset("merkol/ffhq-256")
     process_images(ds["train"], output_path)
 
-def process_images(dataset, output_path):
-    with tqdm(total=len(dataset), desc="Processing images") as pbar:
+def process_images(dataset, output_path, num_images:int = 1000):
+    # Original paper seems to use the first 1000 images of FFHQ
+    with tqdm(total=num_images, desc="Processing images") as pbar:
         for idx, example in enumerate(dataset):
+            if idx >= num_images:
+                break
             try:
                 image = example["image"]
                 if not isinstance(image, Image.Image):
