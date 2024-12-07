@@ -296,7 +296,7 @@ def get_measurement_model(
         model = available_models[name]
         if (name == "GaussianBlur") or (name == "MotionBlur"):
             return model()
-        elif name == RandomInpainting:
+        elif name == "RandomInpainting":
             return model(noise_model=noise_model, sigma=sigma, inpainting_noise_level=inpainting_noise_level)
         
         return model(noise_model=noise_model,sigma=sigma) if (noise_model == "gaussian") else model(noise_model=noise_model)
