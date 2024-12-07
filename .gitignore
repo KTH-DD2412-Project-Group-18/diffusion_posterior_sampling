@@ -168,13 +168,14 @@ cython_debug/
 # Ignore some data-specific stuff for images and modelss
 *.pr
 *.JPEG
+*jpg
 *.png
 *.pt
 
-datasets/*
 !datasets/README.md
 !datasets/*.py
-!datasets/*
+!datasets/eval_imgs_*
+
 data/blur_models/pretrained/GOPRO_wVAE.pth
 *.txt
 *.csv
