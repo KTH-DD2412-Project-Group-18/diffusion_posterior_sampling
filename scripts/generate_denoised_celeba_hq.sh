@@ -1,6 +1,6 @@
 #!/bin/bash
 
-OOD_DIR="./datasets/eval_imgs_ffhq"
+OOD_DIR="./datasets/eval_imgs_celeba_hq"
 MODEL_PATH="models/ffhq_baseline.pt"
 START_TIME=$(date +%s)
 echo "Starting inverse sampling at $(date)"
