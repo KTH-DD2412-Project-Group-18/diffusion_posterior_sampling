@@ -1,0 +1,9 @@
+{
+  "title": "Imagenet-1k Validation set",
+  "id": "titericz/imagenet1k-val",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ]
+}
