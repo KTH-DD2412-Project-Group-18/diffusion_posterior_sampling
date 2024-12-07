@@ -1,17 +1,19 @@
 #!/bin/bash
 
-EVAL_DIR="./datasets/imagenet/eval_imgs"
+OOD_DIR="./datasets/eval_imgs_imagenet"
 MODEL_PATH="models/256x256_diffusion_uncond.pt"
 START_TIME=$(date +%s)
 echo "Starting inverse sampling at $(date)"
 
-echo "Processing one image from each class folder in $EVAL_DIR"
-for class_folder in "$EVAL_DIR"/*; do
-    if [ ! -d "$class_folder" ]; then
-        continue
-    fi
-    echo "Processing class folder: $class_folder"
+for image_file in "$OOD_DIR"/*.jpg; do
+    [ -e "$image_file" ] || continue
+
+    echo "Processing image: $image_file"
     echo "Current time: $(date)"
+
+    temp_dir=$(mktemp -d)
+    cp "$image_file" "$temp_dir/"
+
     poetry run python scripts/image_sample.py \
         --attention_resolutions "32,16,8" \
         --class_cond "False" \
@@ -36,7 +38,7 @@ for class_folder in "$EVAL_DIR"/*; do
         --noise_model "gaussian" \
         --sigma "0.05" \
         --step_size "1.0" \
-        --data_path "$class_folder" \
+        --data_path "$temp_dir" \
         --sampling_batch_size "10" \
         --single_image_data "True" \
         --inpainting_noise_level ".92"
