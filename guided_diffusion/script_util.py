@@ -272,7 +272,12 @@ def create_gaussian_diffusion(
         rescale_timesteps=rescale_timesteps,
     )
 
-def get_measurement_model(name, noise_model, sigma):
+def get_measurement_model(
+    name:str, 
+    noise_model: str, 
+    sigma: float, 
+    inpainting_noise_level: float
+):
     """Import measurement model class from data.measurement_models"""
 
     available_models = {
@@ -291,6 +296,8 @@ def get_measurement_model(name, noise_model, sigma):
         model = available_models[name]
         if (name == "GaussianBlur") or (name == "MotionBlur"):
             return model()
+        elif name == RandomInpainting:
+            return model(noise_model=noise_model, sigma=sigma, inpainting_noise_level=inpainting_noise_level)
         return model(noise_model=noise_model,sigma=sigma) if (noise_model == "gaussian") else model(noise_model=noise_model)
 
 def args_to_dict(args, keys):

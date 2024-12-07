@@ -10,6 +10,14 @@ from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
 from guided_diffusion import dist_util
 
+def noiser(tensor, noise_model="gaussian", sigma: float = 0.05):
+    if noise_model == "gaussian":
+        return tensor + torch.randn_like(tensor) * sigma
+    elif noise_model == "poisson":
+        return torch.poisson(tensor)
+    else: 
+        return tensor
+
 class Identity(object):
     "Implements the identity function as forward measurement model"
     def __init__(self, noise_model="gaussian", sigma=.05):
@@ -41,10 +49,10 @@ class RandomInpainting(object):
     - sigma: float = variance of Gaussian noise
     - noise_model: str = which model to implement "gaussian" | "poisson"
     """
-    def __init__(self, noise_model="gaussian", sigma=.05, noise_level = .5):
+    def __init__(self, noise_model="gaussian", sigma=.05, inpainting_noise_level=.92):
         self.mask = None
         self.sigma = sigma
-        self.noise_level = noise_level
+        self.noise_level = inpainting_noise_level
         if noise_model not in ["gaussian", "poisson"]:
             raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
         self.noise_model = noise_model
@@ -388,7 +396,7 @@ class MotionBlur(object):
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
 
-        if self.kernel_tensor == None:
+        if self.kernel_tensor is None:
             kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
             kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
             kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)

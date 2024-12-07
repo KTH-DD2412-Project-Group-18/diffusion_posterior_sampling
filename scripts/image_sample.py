@@ -13,8 +13,6 @@ import argparse
 import numpy as np
 import torch as th
 import torch.distributed as dist
-from torchvision.transforms import ToPILImage
-
 from torchvision import (datasets, 
                          transforms)
 from guided_diffusion import dist_util, logger
@@ -26,18 +24,25 @@ from guided_diffusion.script_util import (
     get_measurement_model,
     create_dps_diffusion
 )
-from PIL import Image
 import matplotlib.pyplot as plt
 from data.data_utils import SingleImageDataset
 
-def denormalize_imagenet(tensor):
-                device = tensor.device
-                mean = th.tensor([0.485, 0.456, 0.406], device=device).view(3, 1, 1)
-                std = th.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
-                return tensor * std + mean
+def normalize_np(img):
+    """Normalize img in arbitrary range to [0, 1]"""
+    img -= np.min(img)
+    img /= np.max(img)
+    return img
 
-def minmax_normalization(x: np.ndarray):
-    return (x - x.min()) / (x.max() - x.min())
+def process_image(x):
+    """Process image for saving - handles both tensor and numpy inputs"""
+    if isinstance(x, th.Tensor):
+        x = x.detach().cpu().squeeze().numpy()
+    if x.ndim == 4: 
+        x = x[0]
+    if x.shape[0] == 3: 
+        x = np.transpose(x, (1, 2, 0))
+        
+    return normalize_np(x)
 
 def main():
     args = create_argparser().parse_args()
@@ -69,14 +74,15 @@ def main():
             # Perform the DPS sampling as in algorithm 1/2
             # =========================================== #
             measurement_model = get_measurement_model(
-                 name=args.measurement_model,
-                 noise_model=args.noise_model,
-                 sigma=args.sigma
+                name=args.measurement_model,
+                noise_model=args.noise_model,
+                sigma=args.sigma,
+                inpainting_noise_level=args.inpainting_noise_level
             )
 
             dataset = args.data_path.split("/")
             logger.configure(dir=f"./output/{measurement_model}/{dataset[2]}/{time.time()}")
-            logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler...")
+            logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler with {args.timestep_respacing} respaced steps...")
             
             # Compute the forward measurement + noise
             transform = transforms.Compose([
@@ -102,16 +108,11 @@ def main():
 
             # Save clean + noisy images for reference
             for prefix, img in [("clean", img_clean), ("noisy", img_noisy)]:
-                if len(img.shape) == 4:
-                    img_ = img.squeeze(0)
-                else:
-                    img_ = img
-                img_ = denormalize_imagenet(img_)
-                img_ = img_.permute(1,2,0).numpy()
-                img_ = np.clip(img_, 0, 1)
+                print(f"\nProcessing {prefix} measurement:")
+                img_processed = process_image(img)
                 save_path = os.path.join(logger.get_dir(), f"{prefix}_meas.png")
-                plt.imsave(save_path, img_)
-                del img_
+                plt.imsave(save_path, img_processed)
+                del img_processed
 
             # Create the DPS model with all necessary parameters
             dps_diffusion = create_dps_diffusion(
@@ -145,22 +146,25 @@ def main():
                 model,
                 (args.batch_size, 3, args.image_size, args.image_size)
             )
+        
+        if rank == 0:
+            try:
+                sample_processed = process_image(sample)
+                plt.imsave(
+                    os.path.join(logger.get_dir(), "sample_0.png"),
+                    sample_processed
+                )
+                logger.log(f"Saved sample image to {os.path.join(logger.get_dir(), 'sample_0.png')}")
+            except Exception as e:
+                logger.log(f"Failed to save sample image: {e}")
 
-        #sample = (sample + 1) / 2
-        sample = denormalize_imagenet(sample)
-        sample = sample.cpu().permute(0, 2, 3, 1).numpy()
-        sample = (sample - sample.min()) / (sample.max() - sample.min())
-        sample = np.clip(sample, 0, 1)
-        sample = (sample * 255).astype(np.uint8)
-
+        sample_uint8 = (process_image(sample) * 255).astype(np.uint8)        
         if rank > 1:
-            gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
-            dist_util.safe_all_gather(gathered_samples, sample)
-            all_images.extend([sample for sample in gathered_samples])
+            gathered_samples = [th.zeros_like(sample_uint8) for _ in range(dist.get_world_size())]
+            dist_util.safe_all_gather(gathered_samples, sample_uint8)
+            all_images.extend([s for s in gathered_samples])
         else:
-            all_images.append(sample)
-
-        logger.log(f"created {len(all_images) * args.batch_size} samples")
+            all_images.append(sample_uint8)
 
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
@@ -175,14 +179,6 @@ def main():
         out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
         logger.log(f"saving to {out_path}")
         np.savez(out_path, arr)
-        try:
-            if arr.shape[0] > 0:
-                img = Image.fromarray(arr[0])
-                img_path = os.path.join(logger.get_dir(), "sample_0.png")
-                img.save(img_path)
-                logger.log(f"Saved sample image to {img_path}")
-        except Exception as e:
-            logger.log(f"Failed to save sample image: {e}")
 
     # dist.barrier()
     logger.log("sampling complete")
@@ -201,6 +197,7 @@ def create_argparser():
         measurement_model="BoxInpainting",
         noise_model="gaussian",
         sigma=.05,
+        inpainting_noise_level=0.92,
         step_size=1.,
         data_path="./datasets/imagenet/val2", # Default = ImageNet validation
         sampling_batch_size=10,
