@@ -169,6 +169,7 @@ cython_debug/
 *.pr
 *.JPEG
 *.png
+*.pt
 
 datasets/*
 !datasets/README.md
