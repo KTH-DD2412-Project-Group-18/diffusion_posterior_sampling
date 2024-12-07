@@ -10,19 +10,19 @@ from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
 from guided_diffusion import dist_util
 
-class noiser:
-    """Could use this to make the code a bit cleaner"""
-    def __init__(self, noise_model="gaussian", sigma: float = 0.05):
-        self.noise_model = noise_model
-        self.sigma = sigma
+# class noiser:
+#     """Could use this to make the code a bit cleaner"""
+#     def __init__(self, noise_model="gaussian", sigma: float = 0.05):
+#         self.noise_model = noise_model
+#         self.sigma = sigma
     
-    def __call__(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn_like(tensor) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor)
-        else: 
-            return tensor
+#     def __call__(self, tensor):
+#         if self.noise_model == "gaussian":
+#             return tensor + torch.randn_like(tensor) * self.sigma
+#         elif self.noise_model == "poisson":
+#             return torch.poisson(tensor)
+#         else: 
+#             return tensor
         
 # def noiser(tensor, noise_model="gaussian", sigma: float = 0.05):
 #     if noise_model == "gaussian":

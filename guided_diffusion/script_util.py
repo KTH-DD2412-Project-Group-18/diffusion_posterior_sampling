@@ -298,6 +298,7 @@ def get_measurement_model(
             return model()
         elif name == RandomInpainting:
             return model(noise_model=noise_model, sigma=sigma, inpainting_noise_level=inpainting_noise_level)
+        
         return model(noise_model=noise_model,sigma=sigma) if (noise_model == "gaussian") else model(noise_model=noise_model)
 
 def args_to_dict(args, keys):
