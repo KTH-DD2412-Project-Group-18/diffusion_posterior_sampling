@@ -2,7 +2,7 @@
 
 DIR="./datasets/eval_imgs_ffhq"
 MODEL_PATH="models/ffhq_baseline.pt"
-step_sizes=(0.3 1.0 2.0 100. 1000. 10000. 100000. 500000. 1000000. 10000000.)
+step_sizes=(0.1 0.3 1. 2. 100. 1000. 10000. 100000. 500000. 1000000. 10000000. 100000000. 1000000000.)
 START_TIME=$(date +%s)
 
 echo "Starting experiments at $(date)"
