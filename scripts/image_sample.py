@@ -109,7 +109,7 @@ def main():
 
             # Save clean + noisy images for reference
             for prefix, img in [("clean", img_clean), ("noisy", img_noisy)]:
-                img = img.clone()
+                #img = img.clone()
                 print(f"\nProcessing {prefix} measurement:")
                 img_processed = process_image(img)
                 save_path = os.path.join(logger.get_dir(), f"{prefix}_meas.png")
