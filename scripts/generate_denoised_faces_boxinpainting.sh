@@ -1,30 +1,31 @@
 #!/bin/bash
-MEASUREMENT_MODEL="RandomInpainting"
+MEASUREMENT_MODEL="BoxInpainting"
 MODEL_PATH="models/ffhq_baseline.pt"
 DATASETS=("eval_imgs_celeba_hq" "eval_imgs_ffhq")
 DATASET_NAMES=("celebA" "ffhq")
-STEP_SIZE="0.3"
+STEP_SIZE="0.5"
 INPAINTING_NOISE_LEVEL="0.92"
 
 process_dataset() {
     local dir="./datasets/$1"
     local dataset_name="$2"
     local output_dir="./output/$MEASUREMENT_MODEL/$dataset_name/"
-    
+    echo "================================="
     echo "Processing dataset: $dataset_name"
     echo "Input directory: $dir"
     echo "Output directory: $output_dir"
     echo "Starting DPS-sampling at $(date)"
-    
-    mkdir -p "$output_dir"
-    
+    echo "================================="
     for image_file in "$dir"/*.jpg; do
         [ -e "$image_file" ] || continue
         
-        temp_dir=$(mktemp -d)
         image_name=$(basename "$image_file")
+        temp_dir=$(mktemp -d)
+        echo ""
+        echo "temp_dir: $temp_dir"
         echo "Processing image: $image_file"
         echo "Current time: $(date)"
+        
         cp "$image_file" "$temp_dir/"
         
         poetry run python scripts/image_sample.py \
@@ -44,7 +45,7 @@ process_dataset() {
             --model_path "$MODEL_PATH" \
             --num_samples "1" \
             --batch_size "1" \
-            --timestep_respacing "2" \
+            --timestep_respacing "1000" \
             --dps_update "True" \
             --measurement_model "$MEASUREMENT_MODEL" \
             --inpainting_noise_level "$INPAINTING_NOISE_LEVEL" \

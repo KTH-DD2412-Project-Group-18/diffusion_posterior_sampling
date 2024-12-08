@@ -9,7 +9,8 @@ from data.measurement_models import (
     SuperResolution,
     NonLinearBlurring,
     GaussianBlur,
-    MotionBlur)
+    MotionBlur,
+    PhaseRetrieval)
 from .unet import UNetModel
 import torch as th
 NUM_CLASSES = 1000
@@ -287,7 +288,8 @@ def get_measurement_model(
         "SuperResolution": SuperResolution,
         "NonLinearBlurring": NonLinearBlurring,
         "GaussianBlur": GaussianBlur,
-        "MotionBlur": MotionBlur
+        "MotionBlur": MotionBlur,
+        "PhaseRetrieval": PhaseRetrieval
     }
     if name not in available_models:
         print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")

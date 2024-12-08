@@ -1,5 +1,4 @@
 """
-THIS IS THE NEW ONE 
 Generate a large batch of image samples from a model and save them as a large
 numpy array. This can be used to produce samples for FID evaluation.
 Source: openAI
@@ -42,11 +41,10 @@ def process_image(x):
         x = x[0]
     if x.shape[0] == 3: 
         x = np.transpose(x, (1, 2, 0))
-        
     return normalize_np(x)
 
 def main():
-    args = create_argparser().parse_args()
+    args = create_argparser()
     rank = 0 # or rank = dist.get_rank()
 
     # dist_util.setup_dist()
@@ -81,8 +79,11 @@ def main():
                 inpainting_noise_level=args.inpainting_noise_level
             )
 
-            dataset = args.data_path.split("/")
-            logger.configure(dir=f"./output/{measurement_model}/{dataset[2]}/{time.time()}")
+            #dataset = args.data_path.split("/")[2]
+            output_dir = args.output_dir
+            #output_dir = f"./output/{measurement_model}/{dataset}"
+            logger.configure(dir=output_dir)
+            #logger.configure(dir=f"./output/{measurement_model}/{dataset}/{time.time()}")
             logger.log(f"Preparing dataset with {measurement_model} and creating dps sampler with {args.timestep_respacing} respaced steps...")
             
             # Compute the forward measurement + noise
@@ -108,11 +109,12 @@ def main():
             img_noisy = measurement_model.forward_noise(img_clean.clone())
 
             # Save clean + noisy images for reference
-            for prefix, img in [("clean", img_clean), ("noisy", img_noisy)]:
-                #img = img.clone()
-                print(f"\nProcessing {prefix} measurement:")
+            for prefix, img in [("clean", img_clean), ("meas", img_noisy)]:
+                #img = img.clone() # Note that processing is done in place, so if we clone here we do not get the min-max normalization
                 img_processed = process_image(img)
-                save_path = os.path.join(logger.get_dir(), f"{prefix}_meas.png")
+                img_dir = os.path.join(output_dir, prefix)
+                os.makedirs(img_dir, exist_ok=True)
+                save_path = os.path.join(img_dir, args.img_name)
                 plt.imsave(save_path, img_processed)
                 del img_processed
 
@@ -152,11 +154,14 @@ def main():
         if rank == 0:
             try:
                 sample_processed = process_image(sample)
+                sample_dir = os.path.join(output_dir, "sample")
+                os.makedirs(sample_dir, exist_ok=True)
+                save_path = os.path.join(sample_dir, args.img_name)
                 plt.imsave(
-                    os.path.join(logger.get_dir(), "sample_0.png"),
+                    save_path,
                     sample_processed
                 )
-                logger.log(f"Saved sample image to {os.path.join(logger.get_dir(), 'sample_0.png')}")
+                logger.log(f"Saved sample image to {save_path}")
             except Exception as e:
                 logger.log(f"Failed to save sample image: {e}")
 
@@ -170,17 +175,12 @@ def main():
 
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
-    
-    print("\nFinal array stats:")
-    print(f"Shape: {arr.shape}")
-    print(f"Range: [{arr.min()}, {arr.max()}]")
-    print(f"Mean: {arr.mean():.3f}")
-    
-    if rank == 0:
-        shape_str = "x".join([str(x) for x in arr.shape])
-        out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
-        logger.log(f"saving to {out_path}")
-        np.savez(out_path, arr)
+
+    # if rank == 0:
+    #     shape_str = "x".join([str(x) for x in arr.shape])
+    #     out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
+    #     logger.log(f"saving to {out_path}")
+    #     np.savez(out_path, arr)
 
     # dist.barrier()
     logger.log("sampling complete")
@@ -201,14 +201,21 @@ def create_argparser():
         sigma=.05,
         inpainting_noise_level=0.92,
         step_size=1.,
-        data_path="./datasets/imagenet/val2", # Default = ImageNet validation
+        data_path="./datasets/eval_imgs_imagenet", # Default = ImageNet validation
         sampling_batch_size=10,
-        single_image_data=True
+        single_image_data=True,
+        img_name = "img.jpg"
     )
+
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
-    return parser
+    parser.add_argument("--output_dir", type=str)
+    args = parser.parse_args()
+    if args.output_dir is None:
+        dataset = args.data_path.split("/")[2]
+        args.output_dir = f"./output/{args.measurement_model}/{dataset}/{time.time()}"
+    return args
 
 if __name__ == "__main__":
-    main()
+    main() 

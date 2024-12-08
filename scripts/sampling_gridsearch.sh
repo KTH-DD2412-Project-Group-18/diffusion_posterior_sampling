@@ -28,8 +28,10 @@ for step_size in "${step_sizes[@]}"; do
         --measurement_model Identity \
         --noise_model gaussian \
         --sigma 0.01 \
-        --step_size "$step_size"
-        
+        --step_size "$step_size" \
+        --img_name "img_$step_size" \
+        --single_image_data True
+
     echo "Completed step_size = $step_size"
     echo "----------------------------------------"
 done

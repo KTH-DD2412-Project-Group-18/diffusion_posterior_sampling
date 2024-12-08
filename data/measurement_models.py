@@ -8,68 +8,50 @@ import torch.nn.functional as F
 import yaml   
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
-from guided_diffusion import dist_util
 
-# class noiser:
-#     """Could use this to make the code a bit cleaner"""
-#     def __init__(self, noise_model="gaussian", sigma: float = 0.05):
-#         self.noise_model = noise_model
-#         self.sigma = sigma
-    
-#     def __call__(self, tensor):
-#         if self.noise_model == "gaussian":
-#             return tensor + torch.randn_like(tensor) * self.sigma
-#         elif self.noise_model == "poisson":
-#             return torch.poisson(tensor)
-#         else: 
-#             return tensor
-        
-# def noiser(tensor, noise_model="gaussian", sigma: float = 0.05):
-#     if noise_model == "gaussian":
-#         return tensor + torch.randn_like(tensor) * sigma
-#     elif noise_model == "poisson":
-#         return torch.poisson(tensor)
-#     else: 
-#         return tensor
-
-class Identity(object):
-    "Implements the identity function as forward measurement model"
-    def __init__(self, noise_model="gaussian", sigma=.05):
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-            return ValueError 
+class Noiser:
+    """Noise class with additive Gaussian / Poisson noise"""
+    def __init__(self, noise_model="gaussian", sigma: float = 0.05):
+        if noise_model not in ["gaussian", "poisson"]:
+            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
         self.noise_model = noise_model
         self.sigma = sigma
-
-    def __call__(self, tensor):
+    
+    def noiser(self, tensor, device=None):
+        device = tensor.device if device is None else device
         if self.noise_model == "gaussian":
-            return tensor + torch.randn_like(tensor)*self.sigma
+            noise = torch.randn_like(tensor, device=device) * self.sigma
+            return tensor + noise
         elif self.noise_model == "poisson":
             return torch.poisson(tensor)
-        else: 
-            return tensor
-  
-    
-class RandomInpainting(object):
+
+    def forward_noise(self, tensor):
+        tensor = self(tensor)
+        return self.noiser(tensor)
+
+class Identity(Noiser):
+    "Implements the identity function as forward measurement model"
+    def __init__(self, noise_model="gaussian", sigma=.05):
+        super().__init__(noise_model, sigma)
+        
+    def __call__(self, tensor):
+        return tensor
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+class RandomInpainting(Noiser):
     """ 
     Implements the random-inpainting forward measurement model
     - y ~ N(Px, sigma**2 * I) if noise_model = "gaussian",
     - y ~ Poisson(Px) if noise_model = "poisson".
     
     Here P is the masking matrix given by randomly dropping 92% of pixels
-
-    Parameters
-    ----------
-    - sigma: float = variance of Gaussian noise
-    - noise_model: str = which model to implement "gaussian" | "poisson"
     """
     def __init__(self, noise_model="gaussian", sigma=.05, inpainting_noise_level=.92):
+        super().__init__(noise_model, sigma)
         self.mask = None
-        self.sigma = sigma
         self.noise_level = inpainting_noise_level
-        if noise_model not in ["gaussian", "poisson"]:
-            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-        self.noise_model = noise_model
         
     def __call__(self, tensor):
         device = tensor.device
@@ -79,48 +61,25 @@ class RandomInpainting(object):
         if self.mask is None:
             mask = (torch.rand((b, 1, h, w), device=device) > self.noise_level)
             self.mask = mask.expand(-1, c, -1, -1)
-        return tensor * self.mask.to(device)
-    
-    def forward_noise(self, tensor):
-        tensor = tensor.squeeze(0) if len(tensor.shape) == 4 else tensor
-        device = tensor.device
-        tensor = self(tensor)
-        tensor = self.noiser(tensor, device)
-        if (len(tensor.shape) == 4) and (tensor.shape[0] == 1):
-            tensor = tensor.squeeze(0)
-        return tensor
-        
-    def noiser(self, tensor, device):
-        if self.noise_model == "gaussian":
-            noise = torch.randn(tensor.shape, device=device) * self.sigma
-            result = tensor + noise
-        else:
-            masked = tensor
-            result = torch.poisson(masked)
-        return result
+        tensor = tensor * self.mask.to(device)
+        return tensor.squeeze(0) if (len(tensor.shape) == 4) and (tensor.shape[0] == 1) else tensor
     
     def __repr__(self):
         return self.__class__.__name__
 
-
-class BoxInpainting(object):
+class BoxInpainting(Noiser):
     """ 
     Implements the box inpainting forward measurement model
     - y ~ N(y|Px, sigma**2 * I) if noise_model = "gaussian"
     - y ~ Poisson(Px; lamb) if noise_model = "poisson"
     """
     def __init__(self, noise_model="gaussian", sigma=1.):
-        self.sigma = sigma
-        self.noise_model = noise_model
+        super().__init__(noise_model, sigma)
         self.x1 = None
         self.x2 = None
         self.box_h = None
         self.box_w = None
         self.box_values = False
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson' ")
-            return ValueError
-        
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""
@@ -145,104 +104,82 @@ class BoxInpainting(object):
         return
 
     def __call__(self, tensor):
-        device = tensor.device
-            
-        # Handle batch dimension consistently
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
             
-        b, c, h, w = tensor.shape
-
-        x = tensor
-        self.box(x)
-
-        # Generate mask on the correct device
+        self.box(tensor)
+        device = tensor.device
+        b, c = tensor.shape[:2]
+        
         mask = (torch.zeros((b, 1, 128, 128), device=device) > 0.5)
         mask = mask.expand(-1, c, -1, -1)
         
-        x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
-            = x[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] \
-            * mask
-
-        return x.squeeze(0) if (len(x.shape) == 4) and (x.shape[0] == 1) else x
- 
-    def forward_noise(self, tensor):
-        # Handle batch dimension consistently
-        if len(tensor.shape) == 3:
-            tensor = tensor.unsqueeze(0)
-        tensor = self(tensor)
-        tensor = self.noiser(tensor)
+        tensor[:, :, self.x1:self.x1 + self.box_h, self.x2:self.x2 + self.box_w] *= mask
+        
         return tensor.squeeze(0) if (len(tensor.shape) == 4) and (tensor.shape[0] == 1) else tensor
-
-    def noiser(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size()) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor) 
-        else: 
-            return None
     
     def __repr__(self):
         return self.__class__.__name__
 
-class SuperResolution(object):
 
+class SuperResolution(Noiser):
+    """
+    A class for performing image downsampling and then upsampling while preserving
+    the low-resolution appearance of the downsampled image.
+    """
     def __init__(self, downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05):
+        super().__init__(noise_model, sigma)
         self.downscale_factor = downscale_factor
-        self.upscale_factor   = upscale_factor
-        if (noise_model != "gaussian") and (noise_model != "poisson"):
-            print(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-            return ValueError 
-        self.noise_model = noise_model
-        self.sigma = sigma
+        self.upscale_factor = upscale_factor
+
+    def downsample(self, image):
+        """
+        Downsample the image using bicubic interpolation.
+        """
+        if len(image.shape) == 3:
+            image = image.unsqueeze(0)
+            
+        downsampled = F.interpolate(
+            image,
+            scale_factor=self.downscale_factor,
+            mode='bicubic',
+            align_corners=False
+        )
+        return downsampled.squeeze(0) if image.shape[0] == 1 else downsampled
+
+    def upsample(self, image):
+        """
+        Upsample the image using nearest neighbor interpolation to preserve
+        the pixelated appearance of the downsampled image.
+        """
+        if len(image.shape) == 3:
+            image = image.unsqueeze(0)
+            
+        # Use nearest neighbor to maintain pixelated look
+        upsampled = F.interpolate(
+            image,
+            scale_factor=self.upscale_factor,
+            mode='nearest'  # This preserves the blocky appearance
+        )
+        return upsampled.squeeze(0) if image.shape[0] == 1 else upsampled
 
     def __call__(self, tensor):
-        # returns a downsampled image with added gaussian noise. I.e image from 256x256 -> 64x64 + gaussian noise
-
-        # Handle batch dimension consistently
+        """
+        Apply the pixelation process to the input tensor.
+        """
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
 
-        if tensor.get_device() == 0 and dist_util.dev() == torch.device("mps"):
-            tensor = tensor.to("cpu")
-            downsampled_image = self.bicubic_downsample(tensor)
-            upsampled_image   = self.bicubic_upsample(downsampled_image)
-            upsampled_image = upsampled_image.to("mps")
-        
-        else: 
-            downsampled_image = self.bicubic_downsample(tensor)
-            upsampled_image   = self.bicubic_upsample(downsampled_image)
+        if tensor.device.type == "mps":
+            tensor = tensor.cpu()
+            downsampled = self.downsample(tensor)
+            upsampled = self.upsample(downsampled)
+            upsampled = upsampled.to("mps")
+        else:
+            downsampled = self.downsample(tensor)
+            upsampled = self.upsample(downsampled)
 
-        # print("noisy_downsample from call before return: ", noisy_downsample.get_device())
-        return upsampled_image.squeeze(0) if (len(upsampled_image.shape) == 4) and (upsampled_image.shape[0] == 1) else upsampled_image
-    
-    def bicubic_downsample(self, image):
-        downsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.downscale_factor, mode='bicubic', align_corners=True)            
-        downsampled_image = downsampled_image.squeeze(0)
-        # print("image shape: ", downsampled_image.shape)
-        return downsampled_image
-    
-    def bicubic_upsample(self, image):
-        image = image.unsqueeze(0)
-        upsampled_image = torch.nn.functional.interpolate(image, scale_factor=self.upscale_factor, mode='bicubic', align_corners=True)
-        upsampled_image = upsampled_image.squeeze(0)
-        return upsampled_image
-
-    def forward_noise(self, tensor):
-        # Handle batch dimension consistently
-        if len(tensor.shape) == 3:
-            tensor = tensor.unsqueeze(0)
-        tensor = self(tensor)
-        tensor = self.noiser(tensor)
-        return tensor
-    
-    def noiser(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size()) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor) 
-        else: 
-            return None
+        return upsampled.squeeze(0) if len(upsampled.shape) == 4 and upsampled.shape[0] == 1 else upsampled
     
     """
     def add_gaussian_noise(self, image, image_size):
@@ -276,8 +213,8 @@ class SuperResolution(object):
 
     def __repr__(self):
         return self.__class__.__name__
-        
-class NonLinearBlurring(object):
+
+class NonLinearBlurring(Noiser):
     """
     Implements the non-linear blurring forward measurement model.
     y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
@@ -286,9 +223,7 @@ class NonLinearBlurring(object):
         link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
     """
     def __init__(self, noise_model="gaussian", sigma=.05):
-        if noise_model not in ["gaussian", "poisson"]:
-            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-        self.sigma = sigma
+        super().__init__(noise_model, sigma)
 
     def generate_blur(self, tensor):
         # Handle batch dimension consistently
@@ -320,38 +255,21 @@ class NonLinearBlurring(object):
         return LQ_tensor.squeeze(0) if (len(LQ_tensor.shape) == 4) and (LQ_tensor.shape[0] == 1) else LQ_tensor
 
     def __call__(self, tensor):
-        blurred_img = self.generate_blur(tensor)
-        return blurred_img
- 
-    def forward_noise(self, tensor):
-        tensor = self(tensor)
-        tensor = self.noiser(tensor)
-        return tensor
-
-    def noiser(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size()) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor) 
-        else: 
-            return None
+        return self.generate_blur(tensor)
     
     def __repr__(self):
         return self.__class__.__name__
 
-class GaussianBlur(object):
+class GaussianBlur(Noiser):
     """
     Implements the Gaussian convolution (Gaussian noise) forward measurement model.
     The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
     the measurement. 
     """
     def __init__(self, noise_model='gaussian', kernel_size=(61,61), sigma_in_conv=3, sigma=.05):
-        if noise_model not in ["gaussian", "poisson"]:
-            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-        self.noise_model = noise_model
+        super().__init__(noise_model, sigma)
         self.kernel_size = kernel_size
         self.sigma_in_conv = sigma_in_conv
-        self.sigma = sigma
 
     def gaussian_kernel(self, device=None):
         size = self.kernel_size[0]
@@ -359,54 +277,35 @@ class GaussianBlur(object):
         y = torch.linspace(-(size // 2), size // 2, size, device=device)
         x, y = torch.meshgrid(x, y, indexing='xy')
         kernel = torch.exp(-(x**2 + y**2) / (2 * self.sigma_in_conv**2))
-        kernel /= kernel.sum()
-        return kernel
+        return kernel / kernel.sum()
 
     def __call__(self, tensor):
-        # Handle batch dimension consistently
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
-        device = tensor.device  
-        kernel = self.gaussian_kernel(device=device)
+        
+        kernel = self.gaussian_kernel(tensor.device)
         kernel = kernel.unsqueeze(0).unsqueeze(0)
-        num_channels = tensor.size(1)
-        kernel = kernel.repeat(num_channels, 1, 1, 1)
-        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=num_channels)
-        return blurred.squeeze(0) if (len(blurred.shape) == 4) and (blurred.shape[0] == 1) else blurred
-    
-    def forward_noise(self, tensor):
-        tensor = self(tensor)
-        tensor = self.noiser(tensor)
-        return tensor
-
-    def noiser(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size()) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor) 
-        else: 
-            return None
+        kernel = kernel.repeat(tensor.size(1), 1, 1, 1)
+        
+        blurred = F.conv2d(tensor, weight=kernel, padding=self.kernel_size[0] // 2, groups=tensor.size(1))
+        return blurred.squeeze(0) if len(blurred.shape) == 4 and blurred.shape[0] == 1 else blurred
     
     def __repr__(self):
         return self.__class__.__name__
-    
-class MotionBlur(object):
+
+class MotionBlur(Noiser):
     """
     Implements the motion blur forward measurement model. 
     The motion blur kernel is an external kernel from (see link)
         link: https://github.com/LeviBorodenko/motionblur/tree/master
     """
-    def __init__(self, noise_model="gaussian", kernel_size=(61,61), intensity=0.5, sigma=.05) -> None:
-        if noise_model not in ["gaussian", "poisson"]:
-            raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
-        self.noise_model = noise_model
+    def __init__(self, noise_model="gaussian", kernel_size=(61,61), intensity=0.5, sigma=.05):
+        super().__init__(noise_model, sigma)
         self.kernel_size = kernel_size
         self.intensity = intensity
-        self.sigma = sigma
         self.kernel_tensor = None
 
     def __call__(self, tensor):
-        # Handle batch dimension consistently
         if len(tensor.shape) == 3:
             tensor = tensor.unsqueeze(0)
 
@@ -414,29 +313,80 @@ class MotionBlur(object):
             kernel_matrix = Kernel(size=self.kernel_size, intensity=self.intensity).kernelMatrix
             kernel_tensor = torch.tensor(kernel_matrix, dtype=tensor.dtype, device=tensor.device)
             kernel_tensor = kernel_tensor.unsqueeze(0).unsqueeze(0)
-            num_channels = tensor.size(1)
-            kernel_tensor = kernel_tensor.repeat(num_channels, 1, 1, 1)
+            kernel_tensor = kernel_tensor.repeat(tensor.size(1), 1, 1, 1)
             self.kernel_tensor = kernel_tensor
 
         self.kernel_tensor = self.kernel_tensor.to(tensor.device)
-        num_channels = tensor.size(1)
-        blurred = F.conv2d(tensor, weight=self.kernel_tensor, padding=self.kernel_size[0] // 2, groups=num_channels)
-
-        # Return with original dimensions
+        blurred = F.conv2d(tensor, weight=self.kernel_tensor, padding=self.kernel_size[0] // 2, groups=tensor.size(1))
         return blurred.squeeze(0) if len(tensor.shape) == 4 and tensor.shape[0] == 1 else blurred
     
-    def forward_noise(self, tensor):
-        tensor = self(tensor)
-        tensor = self.noiser(tensor)
-        return tensor
+    def __repr__(self):
+        return self.__class__.__name__
     
-    def noiser(self, tensor):
-        if self.noise_model == "gaussian":
-            return tensor + torch.randn(size=tensor.size()) * self.sigma
-        elif self.noise_model == "poisson":
-            return torch.poisson(tensor) 
-        else: 
-            return None
+class PhaseRetrieval(Noiser):
+    """
+    Implements the phase retrieval forward measurement model:
+    y ~ N(y||FPx_0|, σ²I) for Gaussian noise
+    y ~ P(y||FPx_0|; λ) for Poisson noise
+    
+    where:
+    F = 2D Discrete Fourier Transform 
+    P = Oversampling matrix with ratio k/n
+    |·| = magnitude of complex number
+    """
+    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
+        super().__init__(noise_model, sigma)
+        self.upscale_factor = upscale_factor
+        self.padding = int((upscale_factor / 8.0) * 256)  # Following original implementation's scaling
+        
+    def apply_oversampling(self, tensor):
+        """Applies oversampling matrix P with ratio k/n via padding"""
+        return F.pad(tensor, (self.padding, self.padding, self.padding, self.padding))
 
+    def compute_fft_magnitude(self, tensor):
+        """Computes FFT and returns magnitude"""
+        fourier = torch.fft.fft2(tensor, norm='ortho')
+        fourier = torch.fft.fftshift(fourier)
+        return torch.sqrt(fourier.real**2 + fourier.imag**2)
+
+    def normalize_tensor(self, tensor):
+        """Normalize tensor while preserving gradients"""
+        b, c, h, w = tensor.shape
+        tensor_reshaped = tensor.view(b, c, -1)
+        max_vals = tensor_reshaped.max(dim=2, keepdim=True)[0].unsqueeze(-1)
+        min_vals = tensor_reshaped.min(dim=2, keepdim=True)[0].unsqueeze(-1)
+        return (tensor - min_vals) / (max_vals - min_vals + 1e-8)
+        
+    def __call__(self, tensor):
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+        
+        original_device = tensor.device
+        
+        tensor = self.apply_oversampling(tensor)
+        
+        if tensor.device.type == "mps":
+            tensor = tensor.to("cpu")
+
+        batch_size, channels = tensor.shape[:2]
+        fourier_mags = []
+        
+        for b in range(batch_size):
+            channel_mags = []
+            for c in range(channels):
+                magnitude = self.compute_fft_magnitude(tensor[b, c])
+                channel_mags.append(magnitude)
+            
+            batch_mags = torch.stack(channel_mags)
+            fourier_mags.append(batch_mags)
+        
+        magnitudes = torch.stack(fourier_mags)
+        magnitudes = self.normalize_tensor(magnitudes)
+        
+        if original_device.type == "mps":
+            magnitudes = magnitudes.to(original_device)
+        
+        return magnitudes.squeeze(0) if len(tensor.shape) == 3 else magnitudes
+    
     def __repr__(self):
         return self.__class__.__name__
