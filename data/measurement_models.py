@@ -313,56 +313,16 @@ class PhaseRetrieval(NoiseProcess):
     def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
         super().__init__(noise_model, sigma)
         self.upscale_factor = upscale_factor
-        self.padding = int((upscale_factor / 8.0) * 256)  # Following original implementation's scaling
+        self.padding = int((upscale_factor / 8.0) * 256)
         
     def apply_oversampling(self, tensor):
         """Applies oversampling matrix P with ratio k/n via padding"""
         return F.pad(tensor, (self.padding, self.padding, self.padding, self.padding))
-
-    def compute_fft_magnitude(self, tensor):
-        """Computes FFT and returns magnitude"""
-        fourier = torch.fft.fft2(tensor, norm='ortho')
-        fourier = torch.fft.fftshift(fourier)
-        return torch.sqrt(fourier.real**2 + fourier.imag**2)
-
-    def normalize_tensor(self, tensor):
-        """Normalize tensor while preserving gradients"""
-        b, c, h, w = tensor.shape
-        tensor_reshaped = tensor.view(b, c, -1)
-        max_vals = tensor_reshaped.max(dim=2, keepdim=True)[0].unsqueeze(-1)
-        min_vals = tensor_reshaped.min(dim=2, keepdim=True)[0].unsqueeze(-1)
-        return (tensor - min_vals) / (max_vals - min_vals + 1e-8)
-        
-    def __call__(self, tensor):
-        if len(tensor.shape) == 3:
-            tensor = tensor.unsqueeze(0)
-        
-        original_device = tensor.device
-        
-        tensor = self.apply_oversampling(tensor)
-        
-        if tensor.device.type == "mps":
-            tensor = tensor.to("cpu")
-
-        batch_size, channels = tensor.shape[:2]
-        fourier_mags = []
-        
-        for b in range(batch_size):
-            channel_mags = []
-            for c in range(channels):
-                magnitude = self.compute_fft_magnitude(tensor[b, c])
-                channel_mags.append(magnitude)
-            
-            batch_mags = torch.stack(channel_mags)
-            fourier_mags.append(batch_mags)
-        
-        magnitudes = torch.stack(fourier_mags)
-        magnitudes = self.normalize_tensor(magnitudes)
-        
-        if original_device.type == "mps":
-            magnitudes = magnitudes.to(original_device)
-        
-        return magnitudes.squeeze(0) if len(tensor.shape) == 3 else magnitudes
     
+    def __call__(self, tensor):
+        """Computes the Magnitude of the centered Fourier coefficients"""
+        tensor_pad = self.apply_oversampling(tensor)
+        return tensor_pad.abs()
+
     def __repr__(self):
         return self.__class__.__name__
