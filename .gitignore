@@ -180,3 +180,5 @@ data/blur_models/pretrained/GOPRO_wVAE.pth
 *.txt
 *.csv
 *.npz
+
+!requirements.txt
