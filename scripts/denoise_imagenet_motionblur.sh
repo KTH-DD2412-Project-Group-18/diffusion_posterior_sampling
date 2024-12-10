@@ -3,7 +3,7 @@ MEASUREMENT_MODEL="MotionBlur"
 MODEL_PATH="models/256x256_diffusion_uncond.pt"
 DATASETS=("eval_imgs_imagenet")
 DATASET_NAMES=("imagenet")
-STEP_SIZE="0.5"
+STEP_SIZE="0.15"
 INPAINTING_NOISE_LEVEL="0.92"
 
 START_TIME=$(date +%s)
