@@ -1,21 +1,29 @@
 #!/bin/bash
-MEASUREMENT_MODEL="MotionBlur"
+
+if [ "$#" -ne 5 ]; then
+    echo "Usage: $0 <dataset_dir> <dataset_name> <measurement_model> <step_size> <inpainting_noise_level>"
+    exit 1
+fi
+
 MODEL_PATH="models/ffhq_baseline.pt"
-DATASETS=("eval_imgs_celeba_hq" "eval_imgs_ffhq")
-DATASET_NAMES=("celebA" "ffhq")
-STEP_SIZE="0.15"
-INPAINTING_NOISE_LEVEL="0.92"
 
 process_dataset() {
     local dir="./datasets/$1"
     local dataset_name="$2"
-    local output_dir="./output/$MEASUREMENT_MODEL/$dataset_name/"
+    local measurement_model="$3"
+    local step_size="$4"
+    local inpainting_noise_level="$5"
+    local output_dir="./output/$measurement_model/$dataset_name/"
+    
     echo "================================="
     echo "Processing dataset: $dataset_name"
     echo "Input directory: $dir"
     echo "Output directory: $output_dir"
     echo "Starting DPS-sampling at $(date)"
     echo "================================="
+    
+    mkdir -p "$output_dir"
+    
     for image_file in "$dir"/*.jpg; do
         [ -e "$image_file" ] || continue
         
@@ -47,11 +55,11 @@ process_dataset() {
             --batch_size "1" \
             --timestep_respacing "1000" \
             --dps_update "True" \
-            --measurement_model "$MEASUREMENT_MODEL" \
-            --inpainting_noise_level "$INPAINTING_NOISE_LEVEL" \
+            --measurement_model "$measurement_model" \
+            --inpainting_noise_level "$inpainting_noise_level" \
             --noise_model "gaussian" \
             --sigma "0.05" \
-            --step_size "$STEP_SIZE" \
+            --step_size "$step_size" \
             --data_path "$temp_dir" \
             --sampling_batch_size "1" \
             --single_image_data "True" \
@@ -62,15 +70,4 @@ process_dataset() {
     done
 }
 
-START_TIME=$(date +%s)
-
-for i in "${!DATASETS[@]}"; do
-    process_dataset "${DATASETS[i]}" "${DATASET_NAMES[i]}"
-done
-
-END_TIME=$(date +%s)
-ELAPSED=$((END_TIME - START_TIME))
-HOURS=$((ELAPSED / 3600))
-MINUTES=$(( (ELAPSED % 3600) / 60 ))
-SECONDS=$((ELAPSED % 60))
-echo "Total elapsed time = ${HOURS} hours, ${MINUTES} minutes and ${SECONDS} seconds"
+process_dataset "$1" "$2" "$3" "$4" "$5"

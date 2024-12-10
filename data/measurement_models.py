@@ -191,7 +191,7 @@ class SuperResolution(NoiseProcess):
     def __repr__(self):
         return self.__class__.__name__
 
-class NonLinearBlurring(NoiseProcess):
+class NonLinearBlur(NoiseProcess):
     """
     Implements the non-linear blurring forward measurement model.
     y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
@@ -205,7 +205,7 @@ class NonLinearBlurring(NoiseProcess):
     def generate_blur(self, tensor):
         # Handle batch dimension consistently
         if len(tensor.shape) == 3:
-            x = tensor.unsqueeze(0)
+            tensor = tensor.unsqueeze(0)
 
         # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py 
         device = tensor.device
@@ -360,13 +360,13 @@ class Magnitude(NoiseProcess):
 
 class RandomElastic(NoiseProcess):
     """
-    Implements the Randomly Elastic forward measurement model
+    Implements the Randomly Elastic forward measurement model (Not differentiable - so does not work)
     """
     def __init__(self, noise_model="gaussian", sigma = 0.05):
         super().__init__(noise_model, sigma)
         self.elastic = None
-        self.alpha = 10
-        self.elastic_sigma = 2
+        self.alpha = 40
+        self.elastic_sigma = 10
 
     def __call__(self, tensor):
         tensor_ = tensor.clone()
