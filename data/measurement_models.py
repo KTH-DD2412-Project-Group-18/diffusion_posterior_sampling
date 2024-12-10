@@ -9,8 +9,15 @@ import yaml
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
 
-class Noiser:
-    """Noise class with additive Gaussian / Poisson noise"""
+class NoiseProcess:
+    """Noise class with additive Gaussian / Poisson noise
+    Each measurement model inherits the noiser and forward_noise methods 
+    
+    Parameters
+    ----------
+        - noise_model: Gaussian or Poisson noise
+        - sigma: stdev for gaussian distribution
+    """
     def __init__(self, noise_model="gaussian", sigma: float = 0.05):
         if noise_model not in ["gaussian", "poisson"]:
             raise ValueError(f"Noise model {noise_model} not implemented! Use 'gaussian' or 'poisson'.")
@@ -29,7 +36,7 @@ class Noiser:
         tensor = self(tensor)
         return self.noiser(tensor)
 
-class Identity(Noiser):
+class Identity(NoiseProcess):
     "Implements the identity function as forward measurement model"
     def __init__(self, noise_model="gaussian", sigma=.05):
         super().__init__(noise_model, sigma)
@@ -40,7 +47,7 @@ class Identity(Noiser):
     def __repr__(self):
         return self.__class__.__name__
 
-class RandomInpainting(Noiser):
+class RandomInpainting(NoiseProcess):
     """ 
     Implements the random-inpainting forward measurement model
     - y ~ N(Px, sigma**2 * I) if noise_model = "gaussian",
@@ -67,7 +74,7 @@ class RandomInpainting(Noiser):
     def __repr__(self):
         return self.__class__.__name__
 
-class BoxInpainting(Noiser):
+class BoxInpainting(NoiseProcess):
     """ 
     Implements the box inpainting forward measurement model
     - y ~ N(y|Px, sigma**2 * I) if noise_model = "gaussian"
@@ -122,7 +129,7 @@ class BoxInpainting(Noiser):
         return self.__class__.__name__
 
 
-class SuperResolution(Noiser):
+class SuperResolution(NoiseProcess):
     """
     A class for performing image downsampling and then upsampling while preserving
     the low-resolution appearance of the downsampled image.
@@ -155,11 +162,10 @@ class SuperResolution(Noiser):
         if len(image.shape) == 3:
             image = image.unsqueeze(0)
             
-        # Use nearest neighbor to maintain pixelated look
         upsampled = F.interpolate(
             image,
             scale_factor=self.upscale_factor,
-            mode='nearest'  # This preserves the blocky appearance
+            mode="nearest" 
         )
         return upsampled.squeeze(0) if image.shape[0] == 1 else upsampled
 
@@ -181,40 +187,10 @@ class SuperResolution(Noiser):
 
         return upsampled.squeeze(0) if len(upsampled.shape) == 4 and upsampled.shape[0] == 1 else upsampled
     
-    """
-    def add_gaussian_noise(self, image, image_size):
-        image += torch.randn((3, image_size, image_size)) * self.sigma
-        return image
-    
-
-    def upsample_with_noise(self, low_res_img):
-        _, h, w = low_res_img.shape  # tensor shape is [channels, height, width]
-        x_low_res = low_res_img
-        x_upscaled = torch.zeros((3, h*self.upscale_factor, w*self.upscale_factor))
-        # print("Shape of upscaled image tensor: ", x_upscaled.shape)
-        x_upscaled[:, ::self.upscale_factor, ::self.upscale_factor] = x_low_res
-        mask = (x_upscaled == 0).float()  # Shape: (1, 3, 256, 256)
-
-        if self.noise_model == "gaussian":
-            noise = torch.randn_like(x_upscaled)  # Standard Gaussian noise
-        elif self.noise_model == "poisson":
-             noise = torch.poisson(x_upscaled) 
-        else: 
-            return None
-        noise = torch.randn_like(x_upscaled)  # Standard Gaussian noise
-        noise_intensity = 0.1  # Adjust the noise intensity as needed
-        x_upscaled_with_noise = x_upscaled + noise * mask * noise_intensity
-
-        # Step 6: Clamp the result to ensure pixel values remain valid (e.g., [0, 1])
-        x_upscaled_with_noise = torch.clamp(x_upscaled_with_noise, 0, 255)
-
-        return x_upscaled_with_noise, mask
-    """
-
     def __repr__(self):
         return self.__class__.__name__
 
-class NonLinearBlurring(Noiser):
+class NonLinearBlurring(NoiseProcess):
     """
     Implements the non-linear blurring forward measurement model.
     y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
@@ -260,7 +236,7 @@ class NonLinearBlurring(Noiser):
     def __repr__(self):
         return self.__class__.__name__
 
-class GaussianBlur(Noiser):
+class GaussianBlur(NoiseProcess):
     """
     Implements the Gaussian convolution (Gaussian noise) forward measurement model.
     The Gaussian kernel is 61x61 and convolved with the ground truth image to produce 
@@ -293,7 +269,7 @@ class GaussianBlur(Noiser):
     def __repr__(self):
         return self.__class__.__name__
 
-class MotionBlur(Noiser):
+class MotionBlur(NoiseProcess):
     """
     Implements the motion blur forward measurement model. 
     The motion blur kernel is an external kernel from (see link)
@@ -323,7 +299,7 @@ class MotionBlur(Noiser):
     def __repr__(self):
         return self.__class__.__name__
     
-class PhaseRetrieval(Noiser):
+class PhaseRetrieval(NoiseProcess):
     """
     Implements the phase retrieval forward measurement model:
     y ~ N(y||FPx_0|, σ²I) for Gaussian noise
