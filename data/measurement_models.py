@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import yaml   
 from data.blur_models.kernel_encoding.kernel_wizard import KernelWizard
 from data.motionblur import Kernel
+from torchvision.transforms.v2 import ElasticTransform
 
 class NoiseProcess:
     """Noise class with additive Gaussian / Poisson noise
@@ -310,7 +311,7 @@ class PhaseRetrieval(NoiseProcess):
     P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
     """
-    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
+    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=4.):
         super().__init__(noise_model, sigma)
         self.upscale_factor = upscale_factor
         self.padding = int((upscale_factor / 8.0) * 256)
@@ -322,7 +323,61 @@ class PhaseRetrieval(NoiseProcess):
     def __call__(self, tensor):
         """Computes the Magnitude of the centered Fourier coefficients"""
         tensor_pad = self.apply_oversampling(tensor)
-        return tensor_pad.abs()
+        if tensor.device.type == "mps":
+            tensor_pad = tensor_pad.to("cpu")
+        fourier_coeffs = torch.fft.fft2(tensor_pad, norm="ortho")
+        fourier_coeffs = torch.fft.fftshift(fourier_coeffs)
+        fourier_coeffs = fourier_coeffs.to(tensor.device)
+        return fourier_coeffs.abs()
 
+    def __repr__(self):
+        return self.__class__.__name__
+    
+
+class Magnitude(NoiseProcess):
+    """
+    Implements the magnitude forward measurement model:
+    y ~ N(y||x_0|, σ²I) for Gaussian noise
+    y ~ P(y||x_0|; λ) for Poisson noise
+    
+    where:
+    F = 2D Discrete Fourier Transform 
+    P = Oversampling matrix with ratio k/n
+    |·| = magnitude of complex number
+    """
+    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
+        super().__init__(noise_model, sigma)
+        self.upscale_factor = upscale_factor
+        self.padding = int((upscale_factor / 8.0) * 256)
+    
+    def __call__(self, tensor):
+        """Computes the Magnitude of the centered Fourier coefficients"""
+        return tensor.abs()
+
+    def __repr__(self):
+        return self.__class__.__name__
+    
+
+class RandomElastic(NoiseProcess):
+    """
+    Implements the Randomly Elastic forward measurement model
+    """
+    def __init__(self, noise_model="gaussian", sigma = 0.05):
+        super().__init__(noise_model, sigma)
+        self.elastic = None
+        self.alpha = 10
+        self.elastic_sigma = 2
+
+    def __call__(self, tensor):
+        tensor_ = tensor.clone()
+        if len(tensor_.shape) == 3:
+            tensor_ = tensor_.unsqueeze(0)
+        
+        if self.elastic is None:
+            self.elastic = ElasticTransform(self.alpha, self.elastic_sigma)
+
+        tensor_ = self.elastic(tensor_)
+        return tensor_.squeeze(0) if (len(tensor_.shape) == 4) and (tensor_.shape[0] == 1) else tensor_
+    
     def __repr__(self):
         return self.__class__.__name__

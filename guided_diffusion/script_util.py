@@ -10,7 +10,10 @@ from data.measurement_models import (
     NonLinearBlurring,
     GaussianBlur,
     MotionBlur,
-    PhaseRetrieval)
+    PhaseRetrieval,
+    Magnitude,
+    RandomElastic,
+    )
 from .unet import UNetModel
 import torch as th
 NUM_CLASSES = 1000
@@ -289,7 +292,9 @@ def get_measurement_model(
         "NonLinearBlurring": NonLinearBlurring,
         "GaussianBlur": GaussianBlur,
         "MotionBlur": MotionBlur,
-        "PhaseRetrieval": PhaseRetrieval
+        "PhaseRetrieval": PhaseRetrieval,
+        "Magnitude": Magnitude,
+        "RandomElastic": RandomElastic
     }
     if name not in available_models:
         print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")
