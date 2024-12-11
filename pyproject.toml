@@ -28,6 +28,9 @@ huggingface-hub = "^0.26.3"
 datasets = "^3.1.0"
 lpips = "^0.1.4"
 pytorch-fid = "^0.3.0"
+opencv-python = "^4.10.0.84"
+ignite = "^1.1.0"
+pytorch-ignite = "^0.5.1"
 
 [build-system]
 requires = ["poetry-core"]

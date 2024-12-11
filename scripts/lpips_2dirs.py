@@ -12,6 +12,7 @@ parser.add_argument('--use_gpu', action='store_true', help='turn on flag to use 
 
 opt = parser.parse_args()
 
+
 # total distance variable
 tot_dist = 0
 
@@ -21,7 +22,7 @@ if(opt.use_gpu):
 	loss_fn.cuda()
 
 # crawl directories
-f = open(opt.out,'w')
+#f = open(opt.out,'w')
 files = os.listdir(opt.dir0)
 
 dists = []
@@ -37,8 +38,8 @@ for file in files:
 
 		# Compute distance
 		dist01 = loss_fn.forward(img0,img1)
-		print('%s: %.3f'%(file,dist01))
-		f.writelines('%s: %.6f\n'%(file,dist01))
+		#print('%s: %.3f'%(file,dist01))
+		#f.writelines('%s: %.6f\n'%(file,dist01))
 
 		# Compute total dist
 		dists.append(dist01.item())
@@ -46,7 +47,7 @@ for file in files:
 avg_dist = np.mean(np.array(dists))
 stderr_dist = np.std(np.array(dists))/np.sqrt(len(dists))
 
-print('Avg: %.5f +/- %.5f'%(avg_dist,stderr_dist))
-f.writelines('Avg: %.6f +/- %.6f'%(avg_dist,stderr_dist))
+print('LPIPS: %.5f +/- %.5f'%(avg_dist,stderr_dist))
+#f.writelines('Avg: %.6f +/- %.6f'%(avg_dist,stderr_dist))
 
-f.close()
+#f.close()
