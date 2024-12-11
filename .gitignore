@@ -175,6 +175,9 @@ cython_debug/
 !datasets/README.md
 !datasets/*.py
 !datasets/eval_imgs_*
+!datasets/generated_*
+!datasets/ffhq
+
 
 data/blur_models/pretrained/GOPRO_wVAE.pth
 *.txt
