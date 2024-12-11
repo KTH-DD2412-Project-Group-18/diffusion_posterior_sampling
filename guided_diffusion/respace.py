@@ -5,6 +5,8 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 import time
 from torchvision.transforms import ToPILImage
+import torch.nn.functional as F
+from dpm_solver.sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
 
 def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
@@ -328,6 +330,171 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             final = sample
         return final["sample"]
     
+
+class DpmPosteriorSampling(DPM_Solver):
+    def __init__(
+        self,
+        model_fn,
+        noise_schedule,
+        measurement_model,
+        measurement,
+        noise_type="gaussian",
+        algorithm_type="dpmsolver++",
+        correcting_x0_fn=None,
+        step_size=1.0,
+        **kwargs
+    ):
+        super().__init__(
+            model_fn=model_fn,
+            noise_schedule=noise_schedule, 
+            algorithm_type=algorithm_type,
+            correcting_x0_fn=correcting_x0_fn,
+            **kwargs
+        )
+        self.measurement_model = measurement_model
+        self.measurement = measurement
+        self.noise_type = noise_type
+        self.step_size = step_size
+        
+        if noise_type == "gaussian":
+            self.measurement_loss = th.nn.MSELoss(reduction="sum")
+        elif noise_type == "poisson":
+            self.measurement_loss = PoissonMseLoss()
+        else:
+            raise ValueError(f"Unsupported noise type: {noise_type}")
+
+    def compute_alpha(self, t):
+        beta = th.cat([th.zeros(1).to(self.betas.device), self.betas], dim=0)
+        a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
+        return a
+    
+    def dps_update(
+        self, 
+        x, 
+        t, 
+        x0_pred, 
+        sample, 
+        model_kwargs=None
+    ):
+        measurement = self.measurement
+        if len(measurement.shape) != 4:
+            measurement = measurement.unsqueeze(0)
+        
+        with th.enable_grad():
+            x = x.detach().requires_grad_(True)
+            y_pred = self.measurement_model(x0_pred)
+            if len(y_pred.shape) != 4:
+                y_pred = y_pred.unsqueeze(0)
+            loss = self.measurement_loss(y_pred, measurement)
+            grad = th.autograd.grad(loss, x)[0]
+
+            y = model_kwargs.get("y", None) if model_kwargs is not None else None
+            classifier_grad = self.classifier_guidance(x, t, y)
+            if classifier_grad != 0:
+                alpha_t = self.compute_alpha(t.long())
+                sigma_t = (1 - alpha_t).sqrt()
+                grad = grad - sigma_t * classifier_grad
+        
+        with th.no_grad():
+            zeta = self.step_size / th.linalg.norm(th.abs(y_pred - measurement)) if loss.item() > 0 else self.step_size
+            updated_sample = sample - zeta * grad
+            
+        return updated_sample.detach()
+
+    def p_sample(
+        self, 
+        x, 
+        t, 
+        model_kwargs=None
+    ):
+        out = super().p_mean_variance(x, t, model_kwargs=model_kwargs)
+        
+        noise = th.randn_like(x)
+        nonzero_mask = (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
+        
+        updated_sample = self.dps_update(x, t, out["pred_xstart"], sample, model_kwargs)
+        
+        return {
+            "sample": updated_sample,
+            "pred_xstart": out["pred_xstart"],
+            "mean": out["mean"]
+        }
+
+    def p_sample_loop_progressive(
+        self,
+        model,
+        shape,
+        device=None
+    ):
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
+        
+        x_t = th.randn(*shape, device=device).requires_grad_(True) 
+            
+        indices = list(range(self.num_timesteps))[::-1]
+        intermediate_indices = list(np.floor(np.linspace(min(indices), max(indices), len(indices)//4)).astype(int))
+
+        for i in tqdm(indices, desc="Sampling", leave=False):
+            t = th.tensor([i] * shape[0], device=device).requires_grad_(False)
+            x_t = x_t.detach()
+            
+            if device.type == 'mps':
+                th.mps.empty_cache()
+            if device.type == "cuda":
+                th.cuda.empty_cache()
+            
+            with th.set_grad_enabled(True):
+                out = self.p_sample(
+                    model,
+                    x=x_t,
+                    t=t,
+                )
+                yield out
+            x_t = out["sample"]
+
+    @staticmethod
+    def create_from_config(
+        config, 
+        model, 
+        measurement_model, 
+        measurement, 
+        classifier=None
+    ):
+        if hasattr(config, "discrete_time") and config.discrete_time:
+            noise_schedule = NoiseScheduleVP(schedule='discrete', betas=config.betas)
+        else:
+            noise_schedule = NoiseScheduleVP(
+                schedule='linear',
+                continuous_beta_0=config.continuous_beta_0,
+                continuous_beta_1=config.continuous_beta_1
+            )
+
+        def model_fn(x, t, **kwargs):
+            return model(x, t, **kwargs)
+            
+        wrapped_model = model_wrapper(
+            model_fn,
+            noise_schedule,
+            model_type="noise",
+            model_kwargs={},
+            guidance_type="uncond"
+        )
+
+        return DpmPosteriorSampling(
+            model_fn=wrapped_model,
+            noise_schedule=noise_schedule,
+            measurement_model=measurement_model,
+            measurement=measurement,
+            noise_type=config.noise_type,
+            algorithm_type=config.algorithm_type,
+            correcting_x0_fn=config.correcting_x0_fn if hasattr(config, "correcting_x0_fn") else None,
+            step_size=config.step_size if hasattr(config, "step_size") else 1.0,
+            classifier=classifier,
+            classifier_scale=config.classifier_scale if hasattr(config, "classifier_scale") else 1.0
+        )
+
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
         self.model = model

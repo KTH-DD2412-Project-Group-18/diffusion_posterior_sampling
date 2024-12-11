@@ -132,8 +132,7 @@ class BoxInpainting(NoiseProcess):
 
 class SuperResolution(NoiseProcess):
     """
-    A class for performing image downsampling and then upsampling while preserving
-    the low-resolution appearance of the downsampled image.
+    Implementation of super resolution with bicubic downscaling and nearest-neighbor upsampling
     """
     def __init__(self, downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05):
         super().__init__(noise_model, sigma)
@@ -194,10 +193,11 @@ class SuperResolution(NoiseProcess):
 class NonLinearBlur(NoiseProcess):
     """
     Implements the non-linear blurring forward measurement model.
-    y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
-    y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
+    - y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
+    - y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
+    
     F(x,k) is a external pretrained model from (see link)
-        link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
+        - https://github.com/VinAIResearch/blur-kernel-space-exploring  
     """
     def __init__(self, noise_model="gaussian", sigma=.05):
         super().__init__(noise_model, sigma)
@@ -274,7 +274,7 @@ class MotionBlur(NoiseProcess):
     """
     Implements the motion blur forward measurement model. 
     The motion blur kernel is an external kernel from (see link)
-        link: https://github.com/LeviBorodenko/motionblur/tree/master
+    - https://github.com/LeviBorodenko/motionblur/tree/master
     """
     def __init__(self, noise_model="gaussian", kernel_size=(61,61), intensity=0.5, sigma=.05):
         super().__init__(noise_model, sigma)
@@ -303,13 +303,16 @@ class MotionBlur(NoiseProcess):
 class PhaseRetrieval(NoiseProcess):
     """
     Implements the phase retrieval forward measurement model:
-    y ~ N(y||FPx_0|, σ²I) for Gaussian noise
-    y ~ P(y||FPx_0|; λ) for Poisson noise
+    - y ~ N(y||FPx_0|, σ²I) for Gaussian noise
+    - y ~ P(y||FPx_0|; λ) for Poisson noise
     
     where:
     F = 2D Discrete Fourier Transform 
     P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
+
+    We compute the oversampling by padding with torch.nn.functional.pad, which is equivalent to oversampling
+    - https://ccrma.stanford.edu/~jos/dft/Zero_Padding_Theorem_Spectral.html
     """
     def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=4.):
         super().__init__(noise_model, sigma)
@@ -337,18 +340,14 @@ class PhaseRetrieval(NoiseProcess):
 class Magnitude(NoiseProcess):
     """
     Implements the magnitude forward measurement model:
-    y ~ N(y||x_0|, σ²I) for Gaussian noise
-    y ~ P(y||x_0|; λ) for Poisson noise
+    - y ~ N(y||x_0|, σ²I) for Gaussian noise
+    - y ~ P(y||x_0|; λ) for Poisson noise
     
     where:
-    F = 2D Discrete Fourier Transform 
-    P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
     """
-    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
+    def __init__(self, noise_model="gaussian", sigma=0.05):
         super().__init__(noise_model, sigma)
-        self.upscale_factor = upscale_factor
-        self.padding = int((upscale_factor / 8.0) * 256)
     
     def __call__(self, tensor):
         """Computes the Magnitude of the centered Fourier coefficients"""
@@ -360,7 +359,7 @@ class Magnitude(NoiseProcess):
 
 class RandomElastic(NoiseProcess):
     """
-    Implements the Randomly Elastic forward measurement model (Not differentiable - so does not work)
+    Implements the Randomly Elastic forward measurement model (Not differentiable - so this does not work yet)
     """
     def __init__(self, noise_model="gaussian", sigma = 0.05):
         super().__init__(noise_model, sigma)
