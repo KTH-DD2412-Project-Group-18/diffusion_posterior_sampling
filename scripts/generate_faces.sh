@@ -57,7 +57,7 @@ process_dataset() {
             --dps_update "True" \
             --measurement_model "$measurement_model" \
             --inpainting_noise_level "$inpainting_noise_level" \
-            --noise_model "gaussian" \
+            --noise_model "poisson" \
             --sigma "0.05" \
             --step_size "$step_size" \
             --data_path "$temp_dir" \

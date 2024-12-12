@@ -16,7 +16,7 @@ class NoiseProcess:
     
     Parameters
     ----------
-        - noise_model: Gaussian or Poisson noise
+        - noise_model: Gaussian or Poisson noise, for Poisson-noise we map the inputs to [0,1] range.
         - sigma: stdev for gaussian distribution
     """
     def __init__(self, noise_model="gaussian", sigma: float = 0.05):
@@ -31,6 +31,7 @@ class NoiseProcess:
             noise = torch.randn_like(tensor, device=device) * self.sigma
             return tensor + noise
         elif self.noise_model == "poisson":
+            tensor = (tensor - tensor.min())/tensor.max()
             return torch.poisson(tensor)
 
     def forward_noise(self, tensor):
