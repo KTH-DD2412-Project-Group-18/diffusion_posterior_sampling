@@ -32,7 +32,10 @@ class NoiseProcess:
             return tensor + noise
         elif self.noise_model == "poisson":
             tensor = (tensor - tensor.min())/tensor.max()
-            return torch.poisson(tensor)
+            noised = torch.poisson(tensor*255.).to(device)/255
+            noised = noised*2. - 1.0
+            noised = noised.clamp(tensor.min(), tensor.max())
+            return noised
 
     def forward_noise(self, tensor):
         tensor = self(tensor)

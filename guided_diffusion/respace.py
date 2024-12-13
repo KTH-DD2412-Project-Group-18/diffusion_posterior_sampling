@@ -123,7 +123,7 @@ class PoissonMseLoss(th.nn.Module):
     def forward(self, x, y):
         """ forward Poisson normalized loss (take absolute value of y (for "correct" mathematics)"""
         assert x.shape == y.shape, f"Shape missmatch between operator with shape {x.shape} and observation with shape {y.shape}"
-        weights = 1. / (2 * th.abs(y).clamp(min=1e-6))
+        weights = 1. / (2 * th.abs(y).clamp(min=1e-2))
         diff = (x - y)
         loss = (weights * diff * diff).sum()
         return loss
