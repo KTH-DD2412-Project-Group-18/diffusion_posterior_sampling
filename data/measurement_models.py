@@ -39,7 +39,8 @@ class NoiseProcess:
         return self.noiser(tensor)
 
 class Identity(NoiseProcess):
-    "Implements the identity function as forward measurement model"
+    """Implements the identity function as forward measurement model.
+    Can be useful for debugging the DPS algorithm and is left here for that."""
     def __init__(self, noise_model="gaussian", sigma=.05):
         super().__init__(noise_model, sigma)
         
@@ -342,14 +343,11 @@ class Magnitude(NoiseProcess):
     y ~ P(y||x_0|; λ) for Poisson noise
     
     where:
-    F = 2D Discrete Fourier Transform 
     P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
     """
-    def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=1.):
+    def __init__(self, noise_model="gaussian", sigma=0.05):
         super().__init__(noise_model, sigma)
-        self.upscale_factor = upscale_factor
-        self.padding = int((upscale_factor / 8.0) * 256)
     
     def __call__(self, tensor):
         """Computes the Magnitude of the centered Fourier coefficients"""
@@ -361,7 +359,7 @@ class Magnitude(NoiseProcess):
 
 class RandomElastic(NoiseProcess):
     """
-    Implements the Randomly Elastic forward measurement model (Not differentiable - so does not work)
+    Implements the Randomly Elastic forward measurement model (Not differentiable - so this does not work at the moment)
     """
     def __init__(self, noise_model="gaussian", sigma = 0.05):
         super().__init__(noise_model, sigma)
