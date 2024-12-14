@@ -31,7 +31,7 @@ from guided_diffusion.respace import DPMDiffusionPosteriorSampling
 
 def normalize_np(img):
     """Normalize img in arbitrary range to [0, 1]"""
-    img -= np.min(img)
+    img = (img - np.min(img))/(np.max(img))
     img /= np.max(img)
     return img
 
@@ -128,21 +128,23 @@ def main():
                     diffusion.betas,
                     device=dev))
             
-            ## disable grads fro model parameters
-            for param in model.parameters():
-                param.requires_grad_(False)
+            # disable grads fro model parameters
+            #for param in model.parameters():
+            #   param.requires_grad_(False)
 
             def model_fn(x, t, **kwargs):
-                if isinstance(t, float):
-                    t = th.tensor([t]).to(x.device)
-                elif len(t.shape) == 0:
-                    t = t.view(-1).to(x.device)
-                if len(x.shape) == 3:
-                    x = x.unsqueeze(0)
-                output = model(x, t, **kwargs)
-                if output.shape[1] == 6:
-                    return output[:, :3]
-                return output
+                with th.enable_grad():
+                    if isinstance(t, float):
+                        t = th.tensor([t], device=x.device)
+                    elif len(t.shape) == 0:
+                        t = t.view(-1)
+                    if len(x.shape) == 3:
+                        x = x.view(1, *x.shape)
+                    output = model(x, t, **kwargs)
+                    if output.shape[1] == 6:
+                        output = output[:, :3]
+                    
+                    return output.requires_grad_(True)
 
 
             wrapped_model = model_wrapper(
@@ -162,12 +164,14 @@ def main():
                 noise_model=args.noise_model,
                 step_size=args.step_size,
                 algorithm_type="dpmsolver++",
+                gaussian_diffusion=diffusion,
+                ddpm_model=model
             )
 
-            logger.log(f"Created DPM-DPS solver with step_size = {args.step_size}..")
-
+            logger.log(f"Created DPM-DPS solver with step_size = {args.step_size}..\n")
+            print("Starting sampling..\n")
             sample = dpm_diffusion.sample(
-                x=th.randn(1, 3, 256, 256, device=dev),
+                x=th.randn(1, 3, 256, 256, device=dev).requires_grad_(True),
                 steps=int(args.timestep_respacing),
                 order=3,
                 skip_type="time_uniform",

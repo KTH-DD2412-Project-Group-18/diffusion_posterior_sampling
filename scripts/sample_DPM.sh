@@ -4,7 +4,7 @@ if [ "$#" -ne 5 ]; then
     exit 1
 fi
 
-MODEL_PATH="models/256x256_diffusion_uncond.pt"
+MODEL_PATH="models/ffhq_baseline.pt"
 
 process_dataset() {
     local dir="./datasets/$1"
@@ -36,24 +36,23 @@ process_dataset() {
         cp "$image_file" "$temp_dir/"
         
         poetry run python scripts/image_sample_DPM.py \
-            --attention_resolutions "32,16,8" \
+            --attention_resolutions "16" \
             --class_cond "False" \
             --diffusion_steps "1000" \
             --dropout "0.0" \
             --image_size "256" \
             --learn_sigma "True" \
             --noise_schedule "linear" \
-            --num_channels "256" \
+            --num_channels "128" \
             --num_head_channels "64" \
-            --num_heads "4" \
-            --num_res_blocks "2" \
+            --num_res_blocks "1" \
             --resblock_updown "True" \
             --use_fp16 "False" \
             --use_scale_shift_norm "True" \
             --model_path "$MODEL_PATH" \
             --num_samples "1" \
             --batch_size "1" \
-            --timestep_respacing "10" \
+            --timestep_respacing "150" \
             --dps_update "True" \
             --measurement_model "$measurement_model" \
             --inpainting_noise_level "$inpainting_noise_level" \
