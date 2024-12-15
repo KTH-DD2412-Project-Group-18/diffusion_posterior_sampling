@@ -1,8 +1,8 @@
 #!/bin/bash
 
-DIR="./datasets/eval_imgs_ffhq"
+DIR="./datasets/celeba_hq_search"
 MODEL_PATH="models/ffhq_baseline.pt"
-step_sizes=(0.1 0.3 1. 2. 100. 1000. 10000. 100000. 500000. 1000000. 10000000. 100000000. 1000000000.)
+step_sizes=(1.0 2.0 3.0 4.0 5.0 7.5 10.0)
 START_TIME=$(date +%s)
 
 echo "Starting experiments at $(date)"
@@ -37,15 +37,15 @@ for image_file in "$DIR"/*.jpg; do
             --batch_size 1 \
             --timestep_respacing 1000 \
             --dps_update True \
-            --measurement_model GaussianBlur \
+            --measurement_model Grayscale \
             --inpainting_noise_level 0.92 \
             --noise_model gaussian \
             --sigma 0.05 \
             --step_size "$step_size" \
             --data_path "$temp_dir" \
             --sampling_batch_size 1 \
-            --single_image_data True
-            
+            --single_image_data True \
+            --output_dir "./output/Grayscale/celebA_grid/$step_size"
         rm -rf "$temp_dir"
         
         echo "Completed step_size = $step_size for image $image_file"

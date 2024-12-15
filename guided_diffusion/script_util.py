@@ -13,6 +13,7 @@ from data.measurement_models import (
     PhaseRetrieval,
     Magnitude,
     RandomElastic,
+    Grayscale
     )
 from .unet import UNetModel
 import torch as th
@@ -294,7 +295,8 @@ def get_measurement_model(
         "MotionBlur": MotionBlur,
         "PhaseRetrieval": PhaseRetrieval,
         "Magnitude": Magnitude,
-        "RandomElastic": RandomElastic
+        "RandomElastic": RandomElastic,
+        "Grayscale": Grayscale
     }
     if name not in available_models:
         print(f"The measurement_model '{name}' is unknown. Please choose any of the available keys in: {available_models.keys()}")
