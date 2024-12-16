@@ -8,6 +8,7 @@ from torchvision.transforms import ToPILImage
 import torch.nn.functional as F
 from dpm_solver.sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
 
+
 def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
                 std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(tensor.device)
@@ -67,6 +68,7 @@ def space_timesteps(num_timesteps, section_counts):
         all_steps += taken_steps
         start_idx += size
     return set(all_steps)
+
 
 class SpacedDiffusion(GaussianDiffusion):
     """
@@ -395,16 +397,22 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
                 y_pred = y_pred.unsqueeze(0)    
             loss = self.measurement_loss(y_pred, measurement)
             grad = th.autograd.grad(loss, x)[0]
-        
+
+        print(f"t = {t}")
+        print(f"loss = {loss.item()}")
+        print(f"grad.mean() = {grad.mean()}")
+
         # === step 7 === #
         with th.no_grad():
+            t_factor = float(t) 
+            #zeta_i = self.step_size * t_factor 
+            #zeta_i = adjusted_step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
             zeta_i = self.step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
             x_new = x_old - zeta_i * grad
 
         return x_new
 
     def get_model_output(self, x, t):
-        """Get direct model output while ensuring gradient flow"""
         with th.set_grad_enabled(True):
             if isinstance(t, float):
                 t = th.tensor([t], device=x.device)
@@ -416,7 +424,7 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
                 model_output = model_output[:, :3]
             
             return model_output
-        
+
     def multistep_dpm_solver_update(self, x_t, model_prev_list, t_prev_list, t, order, solver_type='dpmsolver'):
         """Implementation with direct model access"""
         t_current = t_prev_list[-1].long().view(1)
@@ -445,8 +453,8 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
         # == DPS Step == #
         with th.set_grad_enabled(True):
             x_new = self.dps_update(x_t, t, x0_pred, proposal)
-    
-        return x_new.detach().requires_grad_(True)
+        x_out = 0.1 * proposal + 0.9 * x_new
+        return x_out.detach().requires_grad_(True)
     
     def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform',
               method='multistep', lower_order_final=True, solver_type='dpmsolver'):
@@ -467,7 +475,8 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
                 t_prev_list.append(timesteps[step])
                 model_prev_list.append(self.model_fn(x, timesteps[step]))
             
-            for step in tqdm(range(order, steps + 1), desc="Sampling", leave=True):
+            pbar = tqdm(range(order, steps + 1), desc="Sampling", leave=True)
+            for step in pbar:
                 t = timesteps[step]
                 step_order = min(order, steps + 1 - step) if lower_order_final and steps < 10 else order
                 

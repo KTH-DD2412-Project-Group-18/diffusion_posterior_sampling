@@ -87,7 +87,7 @@ class BoxInpainting(NoiseProcess):
         self.x2 = None
         self.box_h = None
         self.box_w = None
-        self.box_values = False
+        self.box_values = False 
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""

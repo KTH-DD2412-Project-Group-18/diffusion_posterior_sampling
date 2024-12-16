@@ -52,7 +52,7 @@ process_dataset() {
             --model_path "$MODEL_PATH" \
             --num_samples "1" \
             --batch_size "1" \
-            --timestep_respacing "150" \
+            --timestep_respacing "30" \
             --dps_update "True" \
             --measurement_model "$measurement_model" \
             --inpainting_noise_level "$inpainting_noise_level" \
