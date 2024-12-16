@@ -40,10 +40,10 @@ Measurement models are found in `./data/measurement_models.py`. To add a new one
 
 
 ## Downloading pre-trained models
-The model for the `Imagenet` dataset is the 256x256 diffusion $\texttt{256x256\_diffusion\_uncond.pt}$ found here:
+The model for the `Imagenet` dataset is the 256x256 diffusion `256x256_diffusion_uncond.pt` found here:
 https://github.com/openai/guided-diffusion
 
-The model for the `FFHQ` and `celebA-HQ`datasets is the $\texttt{ffhq\_baseline.pt}$-model found here:
+The model for the `FFHQ` and `celebA-HQ`datasets is the `ffhq_baseline.pt`-model found here:
 https://github.com/jychoi118/ilvr_adm
 
 Download these `.pt` files into the `./models` directory.
@@ -86,12 +86,12 @@ We have wrapped the experiments from our paper in `shell`-scripts. To run all of
 - $\texttt{FFHQ}$ and $\texttt{celebA-HQ}$
 
 ```bash
-./scripts/run_experiments_imagenet.sh <measurement-model>
+./scripts/run_experiments_imagenet.sh <MeasurementModel>
 ```
 
 - $\texttt{Imagenet}$ 
 ```bash
-./scripts/run_experiments_imagenet.sh <measurement-model>
+./scripts/run_experiments_imagenet.sh <MeasurementModel>
 ```
 
 ## Using the fast DPM-Sampler
