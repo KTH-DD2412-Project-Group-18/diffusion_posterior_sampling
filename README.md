@@ -1,8 +1,8 @@
 # [Re] Diffusion Posterior Sampling
 
-This is a reimplementation of the Diffusion Posterior Sampling algorithm and a partial reproduction (and extension) of the experiments outlined in the paper by Chung et. al [1]. The implementations are done by Dan Vicente Ihanus ($\texttt{dan.vicente.ihanus@gmail.com}$), Alexander Gutell ($\texttt{agutell@kth.se}$) and Ludvig Skare ($\texttt{lskare@kth.se}$) as a course project in DD2412 at KTH, Royal Institute of Technology the fall of 2024. The implementation uses PyTorch and can run with GPU acceleration using `MPS` and `CUDA`.
+This is a reimplementation of the Diffusion Posterior Sampling algorithm and a partial reproduction (and extension) of the experiments outlined in the paper by Chung et. al [1]. The implementations are done by Dan Vicente Ihanus (`dan.vicente.ihanus@gmail.com`), Alexander Gutell (`agutell@kth.se`) and Ludvig Skare (`lskare@kth.se`) as a course project in DD2412 at KTH, Royal Institute of Technology the fall of 2024. The implementation uses PyTorch and can run with GPU acceleration using `MPS` and `CUDA`.
 
-We have tried to reimplement everything from scratch and try to offer an alternative to the official repository of the authors. The codebase is mainly based on the existing code from (Dhariwal et. Nichol [2]) https://github.com/openai/guided-diffusion. We also try to extend the DPS sampling procedure to the fast DPM-sampler [3], the official codebase of the DPM-samplers are found in https://github.com/LuChengTHU/dpm-solver, we mainly experiment with DPM-Solver++ of order 3.
+We have tried to reimplement everything from scratch and try to offer an alternative to the official repository of the authors. The codebase is mainly based on the existing code from (Dhariwal et. Nichol [2]) https://github.com/openai/guided-diffusion. We also try to extend the DPS sampling procedure to the fast DPM-sampler by Lu et. al[3]. The official codebase of the DPM-samplers are found in https://github.com/LuChengTHU/dpm-solver, we mainly experiment with DPM-Solver++ of order 3.
 
 
 ## Getting started
