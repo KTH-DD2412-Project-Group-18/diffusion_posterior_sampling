@@ -231,7 +231,6 @@ class NonLinearBlur(NoiseProcess):
         if tensor.device != next(self.model.parameters()).device:
             self.model = self.model.to(tensor.device)
         LQ_tensor = self.model.adaptKernel(tensor, kernel=self.kernel)
-        #LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1)
 
         return LQ_tensor
 
