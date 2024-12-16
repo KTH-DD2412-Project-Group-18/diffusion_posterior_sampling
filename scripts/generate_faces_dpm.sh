@@ -1,4 +1,5 @@
 #!/bin/bash
+
 if [ "$#" -ne 5 ]; then
     echo "Usage: $0 <dataset_dir> <dataset_name> <measurement_model> <step_size> <inpainting_noise_level>"
     exit 1
@@ -12,13 +13,13 @@ process_dataset() {
     local measurement_model="$3"
     local step_size="$4"
     local inpainting_noise_level="$5"
-    local output_dir="./output/dpm/$measurement_model/$dataset_name/"
+    local output_dir="./output/$measurement_model/$dataset_name/"
     
     echo "================================="
     echo "Processing dataset: $dataset_name"
     echo "Input directory: $dir"
     echo "Output directory: $output_dir"
-    echo "Starting DPM-DPS sampling at $(date)"
+    echo "Starting DPS-sampling at $(date)"
     echo "================================="
     
     mkdir -p "$output_dir"

@@ -398,16 +398,18 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
             loss = self.measurement_loss(y_pred, measurement)
             grad = th.autograd.grad(loss, x)[0]
 
-        print(f"t = {t}")
-        print(f"loss = {loss.item()}")
-        print(f"grad.mean() = {grad.mean()}")
+        #print(f"t = {t}")
+        #print(f"loss = {loss.item()}")
+        #print(f"grad.mean() = {grad.mean()}")
 
         # === step 7 === #
         with th.no_grad():
-            t_factor = float(t) 
+            #t_factor = float(t) 
             #zeta_i = self.step_size * t_factor 
             #zeta_i = adjusted_step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
-            zeta_i = self.step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
+            step_size = self.step_size
+            zeta_i = step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
+            #print(f"zeta_i = {zeta_i}")
             x_new = x_old - zeta_i * grad
 
         return x_new
@@ -418,27 +420,25 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
                 t = th.tensor([t], device=x.device)
             elif len(t.shape) == 0:
                 t = t.view(-1)
-            
             model_output = self.ddpm_model(x, t)
-            if model_output.shape[1] == 6:
-                model_output = model_output[:, :3]
-            
-            return model_output
+            eps = model_output[:, :3]
+            mean = model_output[:, 3:]
+            return {"eps": eps, "mean": mean}
 
     def multistep_dpm_solver_update(self, x_t, model_prev_list, t_prev_list, t, order, solver_type='dpmsolver'):
         """Implementation with direct model access"""
         t_current = t_prev_list[-1].long().view(1)
         
         x_t = x_t.detach().requires_grad_(True)
-        
+
         with th.set_grad_enabled(True):
-            eps = self.get_model_output(x_t, t_current)
+            eps = self.get_model_output(x_t, t_current)["eps"]
             x0_pred = self.gaussian_diffusion._predict_xstart_from_eps(
                 x_t=x_t,
                 t=t_current,
                 eps=eps
             )
-        
+
         # == DPM Step == #
         with th.no_grad():
             if order == 1:
@@ -453,44 +453,46 @@ class DPMDiffusionPosteriorSampling(DPM_Solver):
         # == DPS Step == #
         with th.set_grad_enabled(True):
             x_new = self.dps_update(x_t, t, x0_pred, proposal)
-        x_out = 0.1 * proposal + 0.9 * x_new
+        x_out = 0.7 * x_new + 0.3 * proposal
+        # x_out = x_new
+
         return x_out.detach().requires_grad_(True)
     
-    def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform',
-              method='multistep', lower_order_final=True, solver_type='dpmsolver'):
-        """Modified sampling loop maintaining gradient connections"""
-        t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
-        t_T = self.noise_schedule.T if t_start is None else t_start
-        device = x.device
+    # def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform',
+    #           method='multistep', lower_order_final=True, solver_type='dpmsolver'):
+    #     """Modified sampling loop maintaining gradient connections"""
+    #     t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
+    #     t_T = self.noise_schedule.T if t_start is None else t_start
+    #     device = x.device
         
-        x = x.requires_grad_(True)
+    #     x = x.requires_grad_(True)
         
-        timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
+    #     timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
         
-        with th.set_grad_enabled(True):
-            t_prev_list = [timesteps[0]]
-            model_prev_list = [self.model_fn(x, timesteps[0])]
+    #     with th.set_grad_enabled(True):
+    #         t_prev_list = [timesteps[0]]
+    #         model_prev_list = [self.model_fn(x, timesteps[0])]
             
-            for step in range(1, order):
-                t_prev_list.append(timesteps[step])
-                model_prev_list.append(self.model_fn(x, timesteps[step]))
+    #         for step in range(1, order):
+    #             t_prev_list.append(timesteps[step])
+    #             model_prev_list.append(self.model_fn(x, timesteps[step]))
             
-            pbar = tqdm(range(order, steps + 1), desc="Sampling", leave=True)
-            for step in pbar:
-                t = timesteps[step]
-                step_order = min(order, steps + 1 - step) if lower_order_final and steps < 10 else order
+    #         pbar = tqdm(range(order, steps + 1), desc="Sampling", leave=True)
+    #         for step in pbar:
+    #             t = timesteps[step]
+    #             step_order = min(order, steps + 1 - step) if lower_order_final and steps < 10 else order
                 
-                x = self.multistep_dpm_solver_update(x, model_prev_list, t_prev_list, t, step_order, solver_type=solver_type)
+    #             x = self.multistep_dpm_solver_update(x, model_prev_list, t_prev_list, t, step_order, solver_type=solver_type)
                 
-                for i in range(order - 1):
-                    t_prev_list[i] = t_prev_list[i + 1]
-                    model_prev_list[i] = model_prev_list[i + 1]
-                t_prev_list[-1] = t
+    #             for i in range(order - 1):
+    #                 t_prev_list[i] = t_prev_list[i + 1]
+    #                 model_prev_list[i] = model_prev_list[i + 1]
+    #             t_prev_list[-1] = t
                 
-                if step < steps:
-                    model_prev_list[-1] = self.model_fn(x, t)
+    #             if step < steps:
+    #                 model_prev_list[-1] = self.model_fn(x, t)
 
-        return x
+    #     return x
     
 
 class _WrappedModel:

@@ -1168,7 +1168,6 @@ class DPM_Solver:
         if method == 'adaptive':
             x = self.dpm_solver_adaptive(x, order=order, t_T=t_T, t_0=t_0, atol=atol, rtol=rtol, solver_type=solver_type)
         elif method == 'multistep':
-            print("hello?")
             assert steps >= order
             timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
             assert timesteps.shape[0] - 1 == steps

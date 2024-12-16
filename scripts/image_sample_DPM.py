@@ -31,8 +31,7 @@ from guided_diffusion.respace import DPMDiffusionPosteriorSampling
 
 def normalize_np(img):
     """Normalize img in arbitrary range to [0, 1]"""
-    img = (img - np.min(img))/(np.max(img))
-    img /= np.max(img)
+    img = (img - np.min(img))/(np.max(img) - np.min(img))
     return img
 
 def process_image(x):
@@ -41,7 +40,7 @@ def process_image(x):
         x = x.detach().cpu().squeeze().numpy()
     if x.ndim == 4: 
         x = x[0]
-    if x.shape[0] == 3: 
+    if x.shape[0] == 3:
         x = np.transpose(x, (1, 2, 0))
     return normalize_np(x)
 
