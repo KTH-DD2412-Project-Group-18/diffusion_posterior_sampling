@@ -11,6 +11,8 @@ import torch as th
 from tqdm import tqdm
 from torchvision.transforms import ToPILImage
 import time
+
+
 def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
                 std = th.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(tensor.device)
@@ -183,14 +185,6 @@ class GaussianDiffusion:
             - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * eps
         ).requires_grad_(True)
     
-    def _predict_xstart_mean_from_eps(self, x_t, t, eps):
-        assert x_t.shape == eps.shape
-        return (
-            extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * (
-                x_t + extract_into_tensor(self.one_minus_alphas_cumprod, t, x_t.shape) * eps
-                )
-        )
-    
     def _predict_xstart_from_xprev(self, x_t, t, xprev):
         assert x_t.shape == xprev.shape
         return (  # (xprev - coef2*x_t) / coef1
@@ -362,9 +356,8 @@ class GaussianDiffusion:
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
 
-                # x0_hat from DPS (we do not use that - might be an error in paper)
                 x0_hat = process_xstart(
-                    self._predict_xstart_mean_from_eps(x_t=x,t=t,eps=model_output)
+                    self._predict_xstart_from_eps(x_t=x,t=t,eps=model_output)
                 )
 
             model_mean, _, _ = self.q_posterior_mean_variance(
@@ -746,6 +739,7 @@ def extract_into_tensor(arr, timesteps, broadcast_shape):
     """
     # Convert numpy array to float32 before creating tensor
     arr = arr.astype(np.float32)
+    timesteps = timesteps.long()
     res = th.from_numpy(arr).to(device=timesteps.device)[timesteps]
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]

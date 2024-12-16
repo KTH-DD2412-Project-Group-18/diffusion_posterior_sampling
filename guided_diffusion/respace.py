@@ -5,6 +5,9 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 import time
 from torchvision.transforms import ToPILImage
+import torch.nn.functional as F
+from dpm_solver.sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
+
 
 def denormalize_imagenet(tensor):
                 mean = th.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(tensor.device)
@@ -192,7 +195,6 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
         
         # === step 7 === #
         with th.no_grad():
-            #print(f"step_size constant = {th.linalg.norm(th.abs(y_pred-self.measurement))} other constant = {th.sqrt(loss).item()}")
             zeta_i = self.step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
             x_new = x_old - zeta_i * grad
         
@@ -329,6 +331,171 @@ class DiffusionPosteriorSampling(SpacedDiffusion):
             final = sample
         return final["sample"]
     
+
+class DPMDiffusionPosteriorSampling(DPM_Solver):
+    """
+    A combined implementation of DPM-Solver with Diffusion Posterior Sampling.
+    Extends DPM-Solver to include posterior sampling updates at each step.
+    """
+    def __init__(
+        self,
+        model_fn,
+        noise_schedule,
+        measurement_model,
+        measurement,
+        noise_model="gaussian",
+        step_size=1.0,
+        algorithm_type="dpmsolver++",
+        correcting_x0_fn=None,
+        correcting_xt_fn=None,
+        thresholding_max_val=1.,
+        gaussian_diffusion = None,
+        ddpm_model = None
+    ):
+        super().__init__(
+            model_fn=model_fn,
+            noise_schedule=noise_schedule,
+            algorithm_type=algorithm_type,
+            correcting_x0_fn=correcting_x0_fn,
+            correcting_xt_fn=correcting_xt_fn,
+            thresholding_max_val=thresholding_max_val
+        )
+        self.gaussian_diffusion = gaussian_diffusion
+        self.ddpm_model = ddpm_model
+        
+        self.measurement_model = measurement_model
+        self.measurement = measurement
+        self.noise_model = noise_model
+        self.step_size = step_size
+        
+        if noise_model == "gaussian":
+            self.measurement_loss = th.nn.MSELoss(reduction="sum")
+        elif noise_model == "poisson":
+            self.measurement_loss = PoissonMseLoss()
+        else:
+            raise NotImplementedError("Only 'gaussian' and 'poisson' noise models supported")
+
+    def dps_update(self, 
+                   x: th.Tensor, 
+                   t: int, 
+                   x0: th.Tensor, 
+                   x_old: th.Tensor
+    ) -> th.Tensor:
+        """
+        Computes the DPS-sampling step, a gradient update at
+        We recompute eps and E[x0|x] to be able to track gradients
+        Also, we detach the computational graph from the previous iteration since its not needed in backprorp
+        """
+        
+        measurement = self.measurement
+        if len(measurement.shape) != 4:
+            measurement = measurement.unsqueeze(0)
+        
+        # == Compute recon-loss == #
+        with th.set_grad_enabled(True):
+            y_pred = self.measurement_model(x0)
+            if len(y_pred.shape) != 4:
+                y_pred = y_pred.unsqueeze(0)    
+            loss = self.measurement_loss(y_pred, measurement)
+            grad = th.autograd.grad(loss, x)[0]
+
+        #print(f"t = {t}")
+        #print(f"loss = {loss.item()}")
+        #print(f"grad.mean() = {grad.mean()}")
+
+        # === step 7 === #
+        with th.no_grad():
+            #t_factor = float(t) 
+            #zeta_i = self.step_size * t_factor 
+            #zeta_i = adjusted_step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
+            step_size = self.step_size
+            zeta_i = step_size / th.linalg.norm(th.abs(y_pred - self.measurement)) if loss.item() > 0 else self.step_size
+            #print(f"zeta_i = {zeta_i}")
+            x_new = x_old - zeta_i * grad
+
+        return x_new
+
+    def get_model_output(self, x, t):
+        with th.set_grad_enabled(True):
+            if isinstance(t, float):
+                t = th.tensor([t], device=x.device)
+            elif len(t.shape) == 0:
+                t = t.view(-1)
+            model_output = self.ddpm_model(x, t)
+            eps = model_output[:, :3]
+            mean = model_output[:, 3:]
+            return {"eps": eps, "mean": mean}
+
+    def multistep_dpm_solver_update(self, x_t, model_prev_list, t_prev_list, t, order, solver_type='dpmsolver'):
+        """Implementation with direct model access"""
+        t_current = t_prev_list[-1].long().view(1)
+        
+        x_t = x_t.detach().requires_grad_(True)
+
+        with th.set_grad_enabled(True):
+            eps = self.get_model_output(x_t, t_current)["eps"]
+            x0_pred = self.gaussian_diffusion._predict_xstart_from_eps(
+                x_t=x_t,
+                t=t_current,
+                eps=eps
+            )
+
+        # == DPM Step == #
+        with th.no_grad():
+            if order == 1:
+                proposal = self.dpm_solver_first_update(x_t, t_prev_list[-1], t, model_s=model_prev_list[-1])
+            elif order == 2:
+                proposal = self.multistep_dpm_solver_second_update(x_t, model_prev_list, t_prev_list, t, solver_type=solver_type)
+            elif order == 3:
+                proposal = self.multistep_dpm_solver_third_update(x_t, model_prev_list, t_prev_list, t, solver_type=solver_type)
+            else:
+                raise ValueError("Solver order must be 1 or 2 or 3")
+        
+        # == DPS Step == #
+        with th.set_grad_enabled(True):
+            x_new = self.dps_update(x_t, t, x0_pred, proposal)
+        x_out = 0.7 * x_new + 0.3 * proposal
+        # x_out = x_new
+
+        return x_out.detach().requires_grad_(True)
+    
+    # def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform',
+    #           method='multistep', lower_order_final=True, solver_type='dpmsolver'):
+    #     """Modified sampling loop maintaining gradient connections"""
+    #     t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
+    #     t_T = self.noise_schedule.T if t_start is None else t_start
+    #     device = x.device
+        
+    #     x = x.requires_grad_(True)
+        
+    #     timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
+        
+    #     with th.set_grad_enabled(True):
+    #         t_prev_list = [timesteps[0]]
+    #         model_prev_list = [self.model_fn(x, timesteps[0])]
+            
+    #         for step in range(1, order):
+    #             t_prev_list.append(timesteps[step])
+    #             model_prev_list.append(self.model_fn(x, timesteps[step]))
+            
+    #         pbar = tqdm(range(order, steps + 1), desc="Sampling", leave=True)
+    #         for step in pbar:
+    #             t = timesteps[step]
+    #             step_order = min(order, steps + 1 - step) if lower_order_final and steps < 10 else order
+                
+    #             x = self.multistep_dpm_solver_update(x, model_prev_list, t_prev_list, t, step_order, solver_type=solver_type)
+                
+    #             for i in range(order - 1):
+    #                 t_prev_list[i] = t_prev_list[i + 1]
+    #                 model_prev_list[i] = model_prev_list[i + 1]
+    #             t_prev_list[-1] = t
+                
+    #             if step < steps:
+    #                 model_prev_list[-1] = self.model_fn(x, t)
+
+    #     return x
+    
+
 class _WrappedModel:
     def __init__(self, model, timestep_map, rescale_timesteps, original_num_steps):
         self.model = model
