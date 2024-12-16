@@ -16,7 +16,7 @@ class NoiseProcess:
     
     Parameters
     ----------
-        - noise_model: Gaussian or Poisson noise, for Poisson-noise we map the inputs to [0,1] range.
+        - noise_model: Gaussian or Poisson noise
         - sigma: stdev for gaussian distribution
     """
     def __init__(self, noise_model="gaussian", sigma: float = 0.05):
@@ -31,16 +31,14 @@ class NoiseProcess:
             noise = torch.randn_like(tensor, device=device) * self.sigma
             return tensor + noise
         elif self.noise_model == "poisson":
-            tensor = (tensor - tensor.min()) / tensor.max()
-            return torch.poisson(tensor*255.).to(device) / 255
+            return torch.poisson(tensor)
 
     def forward_noise(self, tensor):
         tensor = self(tensor)
         return self.noiser(tensor)
 
 class Identity(NoiseProcess):
-    """Implements the identity function as forward measurement model.
-    Can be useful for debugging the DPS algorithm and is left here for that."""
+    "Implements the identity function as forward measurement model"
     def __init__(self, noise_model="gaussian", sigma=.05):
         super().__init__(noise_model, sigma)
         
@@ -89,7 +87,7 @@ class BoxInpainting(NoiseProcess):
         self.x2 = None
         self.box_h = None
         self.box_w = None
-        self.box_values = False
+        self.box_values = False 
 
     def box(self, x):
         """Generate random coordinates for a 128x128 box that fits within the image"""
@@ -134,8 +132,7 @@ class BoxInpainting(NoiseProcess):
 
 class SuperResolution(NoiseProcess):
     """
-    A class for performing image downsampling and then upsampling while preserving
-    the low-resolution appearance of the downsampled image.
+    Implementation of super resolution with bicubic downscaling and nearest-neighbor upsampling
     """
     def __init__(self, downscale_factor=0.25, upscale_factor=4, noise_model="gaussian", sigma=0.05):
         super().__init__(noise_model, sigma)
@@ -196,48 +193,63 @@ class SuperResolution(NoiseProcess):
 class NonLinearBlur(NoiseProcess):
     """
     Implements the non-linear blurring forward measurement model.
-    y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
-    y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
-    F(x,k) is a external pretrained model from (see link)
-        link: https://github.com/VinAIResearch/blur-kernel-space-exploring  
+    - y ~ N(y| F(x,k), sigma**2 * I) if self.noise_model = "gaussian"
+    - y ~ Poisson(F(x,k)) if self.noise_model = "poisson"
     """
     def __init__(self, noise_model="gaussian", sigma=.05):
         super().__init__(noise_model, sigma)
+        self.kernel = None
+        self.model = None
+        
+    def initialize_model(self, device):
+        """Initialize the blur model if not already loaded"""
+        if self.model is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            yml_path = os.path.join(current_dir, "blur_models", "default.yml") 
+
+            with open(yml_path, "r") as f:
+                opt = yaml.load(f, Loader=yaml.SafeLoader)["KernelWizard"]
+                model_path = opt["pretrained"]
+            
+            self.model = KernelWizard(opt)
+            self.model.load_state_dict(torch.load(model_path))
+            self.model.eval()
+            self.model = self.model.to(device)
 
     def generate_blur(self, tensor):
-        # Handle batch dimension consistently
-        if len(tensor.shape) == 3:
-            tensor = tensor.unsqueeze(0)
-
-        # NOTE: From https://github.com/VinAIResearch/blur-kernel-space-exploring/blob/main/generate_blur.py 
+        """Apply blur using stored kernel or generate one if first call"""
         device = tensor.device
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        yml_path = os.path.join(current_dir, "blur_models", "default.yml") 
-        #print(yml_path)
-        #device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
-
-        # Initializing mode
-        with open(yml_path, "r") as f:
-            opt = yaml.load(f, Loader=yaml.SafeLoader)["KernelWizard"]
-            model_path = opt["pretrained"]
-        model = KernelWizard(opt)
-        model.eval()
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        self.initialize_model(device)
         
-        with torch.no_grad():
-            kernel = torch.randn((1, 512, 2, 2)) * 1.2
-            # NOTE: The normalization transformations below was taken from DPS repo. 
-            tensor = (tensor + 1.0) / 2.0  #[-1, 1] -> [0, 1]
-            LQ_tensor = model.adaptKernel(tensor, kernel=kernel)
-            LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1) #[0, 1] -> [-1, 1]
+        if self.kernel is None:
+            self.kernel = torch.randn((1, 512, 2, 2), device=device) * 1.2
+        else:
+            self.kernel = self.kernel.to(device)
 
-        return LQ_tensor.squeeze(0) if (len(LQ_tensor.shape) == 4) and (LQ_tensor.shape[0] == 1) else LQ_tensor
+        tensor = (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)
+        tensor = tensor.contiguous()
+        if tensor.device != next(self.model.parameters()).device:
+            self.model = self.model.to(tensor.device)
+        LQ_tensor = self.model.adaptKernel(tensor, kernel=self.kernel)
+        #LQ_tensor = (LQ_tensor * 2.0 - 1.0).clamp(-1, 1)
+
+        return LQ_tensor
 
     def __call__(self, tensor):
-        return self.generate_blur(tensor)
+        input_was_4d = len(tensor.shape) == 4
+        if input_was_4d:
+            if tensor.shape[0] != 1:
+                raise ValueError(f"Batch size must be 1, got shape {tensor.shape}")
+            tensor = tensor.squeeze(0)
+        result = self.generate_blur(tensor)
+        if input_was_4d:
+            result = result.unsqueeze(0)
+            
+        return result
     
     def __repr__(self):
         return self.__class__.__name__
+    
 
 class GaussianBlur(NoiseProcess):
     """
@@ -276,7 +288,7 @@ class MotionBlur(NoiseProcess):
     """
     Implements the motion blur forward measurement model. 
     The motion blur kernel is an external kernel from (see link)
-        link: https://github.com/LeviBorodenko/motionblur/tree/master
+    - https://github.com/LeviBorodenko/motionblur/tree/master
     """
     def __init__(self, noise_model="gaussian", kernel_size=(61,61), intensity=0.5, sigma=.05):
         super().__init__(noise_model, sigma)
@@ -305,13 +317,16 @@ class MotionBlur(NoiseProcess):
 class PhaseRetrieval(NoiseProcess):
     """
     Implements the phase retrieval forward measurement model:
-    y ~ N(y||FPx_0|, σ²I) for Gaussian noise
-    y ~ P(y||FPx_0|; λ) for Poisson noise
+    - y ~ N(y||FPx_0|, σ²I) for Gaussian noise
+    - y ~ P(y||FPx_0|; λ) for Poisson noise
     
     where:
     F = 2D Discrete Fourier Transform 
     P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
+
+    We compute the oversampling by padding with torch.nn.functional.pad, which is equivalent to oversampling
+    - https://ccrma.stanford.edu/~jos/dft/Zero_Padding_Theorem_Spectral.html
     """
     def __init__(self, noise_model="gaussian", sigma=0.05, upscale_factor=4.):
         super().__init__(noise_model, sigma)
@@ -339,11 +354,10 @@ class PhaseRetrieval(NoiseProcess):
 class Magnitude(NoiseProcess):
     """
     Implements the magnitude forward measurement model:
-    y ~ N(y||x_0|, σ²I) for Gaussian noise
-    y ~ P(y||x_0|; λ) for Poisson noise
+    - y ~ N(y||x_0|, σ²I) for Gaussian noise
+    - y ~ P(y||x_0|; λ) for Poisson noise
     
     where:
-    P = Oversampling matrix with ratio k/n
     |·| = magnitude of complex number
     """
     def __init__(self, noise_model="gaussian", sigma=0.05):
@@ -357,9 +371,39 @@ class Magnitude(NoiseProcess):
         return self.__class__.__name__
     
 
+class Grayscale(NoiseProcess):
+    """
+    Implements grayscale conversion as a forward measurement model.
+    Converts RGB images to grayscale using standard luminance weights:
+    - Red: 0.2989
+    - Green: 0.5870
+    - Blue: 0.1140
+    """
+    def __init__(self, noise_model="gaussian", sigma=0.05):
+        super().__init__(noise_model, sigma)
+        # Standard weights for RGB to grayscale conversion
+        self.weights = torch.tensor([0.2989, 0.5870, 0.1140])
+        
+    def __call__(self, tensor):
+        if len(tensor.shape) == 3:
+            tensor = tensor.unsqueeze(0)
+        self.weights = self.weights.to(tensor.device)
+        if tensor.shape[1] == 3: 
+            weights = self.weights.view(1, 3, 1, 1)
+            grayscale = (tensor * weights).sum(dim=1, keepdim=True)
+            grayscale = grayscale.repeat(1, 3, 1, 1)
+        else:  
+            return tensor
+            
+        return grayscale.squeeze(0) if (len(grayscale.shape) == 4) and (grayscale.shape[0] == 1) else grayscale
+    
+    def __repr__(self):
+        return self.__class__.__name__
+    
+
 class RandomElastic(NoiseProcess):
     """
-    Implements the Randomly Elastic forward measurement model (Not differentiable - so this does not work at the moment)
+    Implements the Randomly Elastic forward measurement model (Not differentiable - so this does not work yet)
     """
     def __init__(self, noise_model="gaussian", sigma = 0.05):
         super().__init__(noise_model, sigma)
